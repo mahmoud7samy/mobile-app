@@ -1,14 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  FlatList,
-  TouchableOpacity,
-  ActivityIndicator,
-  RefreshControl,
+  View, Text, StyleSheet, FlatList,
+  TouchableOpacity, ActivityIndicator, RefreshControl,
 } from 'react-native';
-import { getDashboard, getChatActivity, type ChatActivityItem, type DashboardCourse } from '../lib/api';
+import { useFocusEffect } from '@react-navigation/native';
+import { getDashboard, getChatActivity, getChatUnread, type ChatActivityItem, type DashboardCourse } from '../lib/api';
+import { useThemeStore } from '../lib/themeStore';
 
 type RoomItem = {
   courseInstanceId: string;
@@ -18,9 +15,14 @@ type RoomItem = {
   taName: string | null;
   preview: string;
   timestamp: string;
+  unreadCount: number;
 };
 
-function mergeCoursesWithActivity(courses: DashboardCourse[], activity: ChatActivityItem[]): RoomItem[] {
+function mergeCoursesWithActivity(
+  courses: DashboardCourse[],
+  activity: ChatActivityItem[],
+  unread: { courseInstanceId: string; unreadCount: number }[],
+): RoomItem[] {
   const latestByCourse = new Map<string, ChatActivityItem>();
   for (const a of activity) {
     const existing = latestByCourse.get(a.courseInstanceId);
@@ -28,47 +30,57 @@ function mergeCoursesWithActivity(courses: DashboardCourse[], activity: ChatActi
       latestByCourse.set(a.courseInstanceId, a);
     }
   }
-  return courses.map((c) => {
+  const unreadMap = new Map<string, number>();
+  for (const u of unread) unreadMap.set(u.courseInstanceId, u.unreadCount);
+
+  const items: RoomItem[] = courses.map((c) => {
     const act = latestByCourse.get(c.courseInstanceId);
-    const subj = c.subjectName ?? (c as any).subject?.subjectName ?? 'Course';
-    const lvl = c.levelName ?? (c as any).level?.levelName ?? '';
-    const teacher = c.teacher?.teacherName ?? (c as any).teacher?.teacherName ?? '';
-    const ta = c.ta?.taName ?? (c as any).ta?.taName ?? null;
     return {
       courseInstanceId: c.courseInstanceId,
-      subjectName: subj,
-      levelName: lvl,
-      teacherName: teacher,
-      taName: ta,
+      subjectName: c.subjectName ?? 'Course',
+      levelName: c.levelName ?? '',
+      teacherName: c.teacher?.teacherName ?? '',
+      taName: c.ta?.taName ?? null,
       preview: act?.preview ?? 'No messages yet',
       timestamp: act?.timestamp ?? new Date(0).toISOString(),
+      unreadCount: unreadMap.get(c.courseInstanceId) ?? 0,
     };
+  });
+
+  // Sort: unread rooms first, then by most recent message
+  return items.sort((a, b) => {
+    if (b.unreadCount !== a.unreadCount) return b.unreadCount - a.unreadCount;
+    return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
   });
 }
 
 function formatTime(iso: string) {
   const d = new Date(iso);
   const now = new Date();
-  const sameDay = d.toDateString() === now.toDateString();
-  if (sameDay) return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  if (d.toDateString() === now.toDateString())
+    return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
+const AVATAR_COLORS = ['#6C63FF', '#3B82F6', '#10B981', '#F59E0B', '#EC4899', '#EF4444'];
+
 export default function ChatListScreen({ navigation }: any) {
+  const { theme: t } = useThemeStore();
   const [rooms, setRooms] = useState<RoomItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   const load = async () => {
     try {
-      const [dashboardRes, activityRes] = await Promise.all([
+      const [dashboardRes, activityRes, unreadRes] = await Promise.all([
         getDashboard(),
         getChatActivity(100),
+        getChatUnread(),
       ]);
       const courses = dashboardRes.data?.courses ?? [];
       const activity = activityRes.data ?? [];
-      const list = mergeCoursesWithActivity(courses, activity);
-      setRooms(list);
+      const unread = unreadRes.data ?? [];
+      setRooms(mergeCoursesWithActivity(courses, activity, unread));
     } catch {
       setRooms([]);
     } finally {
@@ -77,76 +89,99 @@ export default function ChatListScreen({ navigation }: any) {
     }
   };
 
-  useEffect(() => {
-    load();
-  }, []);
+  useEffect(() => { load(); }, []);
 
-  const onRefresh = () => {
-    setRefreshing(true);
-    load();
-  };
+  // Reload every time user comes back to this screen (e.g. after reading a chat)
+  useFocusEffect(useCallback(() => { load(); }, []));
 
-  const openRoom = (item: RoomItem) => {
-    navigation.navigate('ChatRoom', {
-      courseInstanceId: item.courseInstanceId,
-      subjectName: item.subjectName,
-      levelName: item.levelName,
-    });
-  };
+  const onRefresh = () => { setRefreshing(true); load(); };
+  const openRoom = (item: RoomItem) =>
+    navigation.navigate('ChatRoom', { courseInstanceId: item.courseInstanceId, subjectName: item.subjectName, levelName: item.levelName });
 
   if (loading && rooms.length === 0) {
-    return (
-      <View style={styles.centered}>
-        <ActivityIndicator size="large" color="#4f46e5" />
-      </View>
-    );
+    return <View style={[styles.centered, { backgroundColor: t.bg }]}><ActivityIndicator size="large" color={t.primary} /></View>;
   }
 
   return (
     <FlatList
+      style={{ backgroundColor: t.bg }}
       data={rooms}
       keyExtractor={(r) => r.courseInstanceId}
       contentContainerStyle={styles.list}
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#4f46e5']} />
-      }
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[t.primary]} tintColor={t.primary} />}
       ListEmptyComponent={
         <View style={styles.empty}>
-          <Text style={styles.emptyText}>No group chats yet. Open a course from the dashboard and start a conversation.</Text>
+          <Text style={[styles.emptyText, { color: t.textMuted }]}>No group chats yet.</Text>
         </View>
       }
-      renderItem={({ item }) => (
-        <TouchableOpacity style={styles.row} onPress={() => openRoom(item)} activeOpacity={0.7}>
-          <View style={styles.rowContent}>
-            <Text style={styles.subject}>{item.subjectName}</Text>
-            <Text style={styles.meta}>{item.levelName} • {item.teacherName}{item.taName ? ` / ${item.taName}` : ''}</Text>
-            <Text style={styles.preview} numberOfLines={2}>{item.preview}</Text>
-          </View>
-          <Text style={styles.time}>{formatTime(item.timestamp)}</Text>
-        </TouchableOpacity>
-      )}
+      renderItem={({ item, index }) => {
+        const color = AVATAR_COLORS[index % AVATAR_COLORS.length];
+        const initials = item.subjectName.split(' ').map((w: string) => w[0]).join('').slice(0, 2).toUpperCase();
+        const hasUnread = item.unreadCount > 0;
+        return (
+          <TouchableOpacity
+            style={[
+              styles.row,
+              { backgroundColor: t.surface, borderColor: hasUnread ? t.primary : t.border, ...t.shadow },
+              hasUnread && { borderLeftWidth: 3, borderLeftColor: t.primary, backgroundColor: t.primary + '0D' },
+            ]}
+            onPress={() => openRoom(item)}
+            activeOpacity={0.7}
+          >
+            <View style={[styles.avatar, { backgroundColor: color + '22' }]}>
+              <Text style={[styles.avatarText, { color }]}>{initials}</Text>
+            </View>
+            <View style={styles.rowContent}>
+              <Text style={[styles.subject, { color: t.text, fontWeight: hasUnread ? '800' : '700' }]}>
+                {item.subjectName}
+              </Text>
+              <Text style={[styles.meta, { color: t.textMuted }]}>
+                {item.levelName}{item.teacherName ? ` · ${item.teacherName}` : ''}{item.taName ? ` / ${item.taName}` : ''}
+              </Text>
+              <Text
+                style={[styles.preview, { color: hasUnread ? t.text : t.textSecondary, fontWeight: hasUnread ? '600' : '400' }]}
+                numberOfLines={1}
+              >
+                {item.preview}
+              </Text>
+            </View>
+            <View style={styles.rightCol}>
+              <Text style={[styles.time, { color: hasUnread ? t.primary : t.textMuted, fontWeight: hasUnread ? '700' : '500' }]}>
+                {formatTime(item.timestamp)}
+              </Text>
+              {hasUnread && (
+                <View style={[styles.badge, { backgroundColor: t.primary }]}>
+                  <Text style={styles.badgeText}>{item.unreadCount > 99 ? '99+' : item.unreadCount}</Text>
+                </View>
+              )}
+            </View>
+          </TouchableOpacity>
+        );
+      }}
     />
   );
 }
 
 const styles = StyleSheet.create({
   list: { padding: 16, paddingBottom: 32 },
-  centered: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#f3f4f6' },
-  empty: { padding: 24, alignItems: 'center' },
-  emptyText: { color: '#6b7280', textAlign: 'center', fontSize: 14 },
+  centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  empty: { padding: 40, alignItems: 'center' },
+  emptyText: { fontSize: 14, textAlign: 'center' },
   row: {
-    flexDirection: 'row',
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    alignItems: 'flex-start',
+    flexDirection: 'row', borderRadius: 16, padding: 14,
+    marginBottom: 10, borderWidth: 1, alignItems: 'center',
   },
-  rowContent: { flex: 1, marginRight: 12 },
-  subject: { fontSize: 16, fontWeight: '600', color: '#111', marginBottom: 4 },
-  meta: { fontSize: 12, color: '#6b7280', marginBottom: 4 },
-  preview: { fontSize: 14, color: '#374151' },
-  time: { fontSize: 12, color: '#9ca3af' },
+  avatar: { width: 46, height: 46, borderRadius: 14, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
+  avatarText: { fontSize: 16, fontWeight: '800' },
+  rowContent: { flex: 1, marginRight: 8 },
+  subject: { fontSize: 15, marginBottom: 2 },
+  meta: { fontSize: 11, marginBottom: 3 },
+  preview: { fontSize: 13 },
+  rightCol: { alignItems: 'flex-end', gap: 6 },
+  time: { fontSize: 11 },
+  badge: {
+    minWidth: 20, height: 20, borderRadius: 10,
+    alignItems: 'center', justifyContent: 'center', paddingHorizontal: 5,
+  },
+  badgeText: { color: '#fff', fontSize: 11, fontWeight: '800' },
 });

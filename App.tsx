@@ -10,18 +10,29 @@ import TaskListScreen from './src/screens/TaskListScreen';
 import TaskDetailScreen from './src/screens/TaskDetailScreen';
 import MaterialsListScreen from './src/screens/MaterialsListScreen';
 import AttendanceScreen from './src/screens/AttendanceScreen';
-import LiveQuizScreen from './src/screens/LiveQuizScreen';
-import SetupPasskeyScreen from './src/screens/SetupPasskeyScreen';
+import TranscriptListScreen from './src/screens/TranscriptListScreen';
+import TranscriptDetailScreen from './src/screens/TranscriptDetailScreen';
+import PrerequisiteTestScreen from './src/screens/PrerequisiteTestScreen';
+import AbsencesScreen from './src/screens/AbsencesScreen';
+
+import NotificationsScreen from './src/screens/NotificationsScreen';
 import { useAuthStore } from './src/lib/store';
-import { HeaderLogoutButton } from './src/components/HeaderLogoutButton';
+import HeaderLogoutButton from './src/components/HeaderLogoutButton';
+import { useThemeStore } from './src/lib/themeStore';
+import { usePushNotifications } from './src/lib/usePushNotifications';
 
 const Stack = createNativeStackNavigator();
 
 export default function App() {
   const { token, _hydrated, rehydrate } = useAuthStore();
+  const { theme: t, init: initTheme } = useThemeStore();
+  // Register device for push notifications when the user is logged in.
+  // All failures are silently swallowed – this never breaks the app.
+  usePushNotifications(!!token);
 
   useEffect(() => {
     rehydrate();
+    initTheme();
   }, [rehydrate]);
 
   if (!_hydrated) {
@@ -34,8 +45,9 @@ export default function App() {
         screenOptions={{
           headerShown: true,
           headerRight: () => <HeaderLogoutButton />,
-          headerStyle: { backgroundColor: '#f9fafb' },
-          headerTitleStyle: { fontWeight: '600', fontSize: 18 },
+          headerStyle: { backgroundColor: t.surface },
+          headerTintColor: t.text,
+          headerTitleStyle: { fontWeight: '700', fontSize: 17, color: t.text },
           headerShadowVisible: false,
         }}
       >
@@ -93,18 +105,38 @@ export default function App() {
               })}
             />
             <Stack.Screen
-              name="LiveQuiz"
-              component={LiveQuizScreen}
+              name="TranscriptList"
+              component={TranscriptListScreen}
+              options={({ route }: any) => ({
+                title: route.params?.subjectName
+                  ? `Transcripts – ${route.params.subjectName}${route.params?.levelName ? ` (${route.params.levelName})` : ''}`
+                  : 'Transcripts',
+              })}
+            />
+            <Stack.Screen
+              name="TranscriptDetail"
+              component={TranscriptDetailScreen}
+              options={{ title: 'Transcript' }}
+            />
+            <Stack.Screen
+              name="PrerequisiteTest"
+              component={PrerequisiteTestScreen}
+              options={({ route }: any) => ({
+                title: route.params?.subjectName
+                  ? `Pre-Test – ${route.params.subjectName}`
+                  : 'Prerequisite Test',
+              })}
+            />
+
+            <Stack.Screen
+              name="Absences"
+              component={AbsencesScreen}
               options={{ headerShown: false }}
             />
             <Stack.Screen
-              name="SetupPasskey"
-              component={SetupPasskeyScreen}
-              options={({ route }: any) => ({
-                title: route.params?.subjectName
-                  ? `Passkey – ${route.params.subjectName}${route.params?.levelName ? ` (${route.params.levelName})` : ''}`
-                  : 'Set up passkey',
-              })}
+              name="Notifications"
+              component={NotificationsScreen}
+              options={{ title: 'Notifications' }}
             />
           </>
         ) : (

@@ -15,15 +15,18 @@ export interface User {
 interface AuthState {
   token: string | null;
   user: User | null;
+  lastViewedNotifications: string | null;
   _hydrated: boolean;
   setAuth: (token: string, user: User) => Promise<void>;
   clearAuth: () => Promise<void>;
   rehydrate: () => Promise<void>;
+  updateLastViewedNotifications: (isoDate: string) => Promise<void>;
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
   token: null,
   user: null,
+  lastViewedNotifications: null,
   _hydrated: false,
   setAuth: async (token, user) => {
     await AsyncStorage.setItem(TOKEN_KEY, token);
@@ -31,8 +34,12 @@ export const useAuthStore = create<AuthState>((set) => ({
     set({ token, user });
   },
   clearAuth: async () => {
-    set({ token: null, user: null });
-    await AsyncStorage.multiRemove([TOKEN_KEY, AUTH_KEY]);
+    set({ token: null, user: null, lastViewedNotifications: null });
+    await AsyncStorage.multiRemove([TOKEN_KEY, AUTH_KEY, 'lastViewedNotifications']);
+  },
+  updateLastViewedNotifications: async (isoDate: string) => {
+    await AsyncStorage.setItem('lastViewedNotifications', isoDate);
+    set({ lastViewedNotifications: isoDate });
   },
   rehydrate: async () => {
     try {
@@ -43,6 +50,10 @@ export const useAuthStore = create<AuthState>((set) => ({
           await AsyncStorage.setItem(TOKEN_KEY, data.token);
           set({ token: data.token, user: data.user });
         }
+      }
+      const lastViewed = await AsyncStorage.getItem('lastViewedNotifications');
+      if (lastViewed) {
+        set({ lastViewedNotifications: lastViewed });
       }
     } catch (_) {}
     set((s) => ({ ...s, _hydrated: true }));

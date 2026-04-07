@@ -1,18 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  FlatList,
-  TouchableOpacity,
-  ActivityIndicator,
-  RefreshControl,
-  Alert,
+  View, Text, StyleSheet, FlatList, TouchableOpacity,
+  RefreshControl, ActivityIndicator, Alert, Platform
 } from 'react-native';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import { getMaterials, type MaterialItem, type MaterialsByCourseResponse, API_BASE_URL } from '../lib/api';
 import { getAuthToken } from '../lib/store';
+import { useThemeStore } from '../lib/themeStore';
 
 type SectionItem = { type: 'header'; label: string } | { type: 'material'; material: MaterialItem; section: 'teacher' | 'ta' };
 
@@ -26,8 +21,30 @@ function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString(undefined, { dateStyle: 'medium' });
 }
 
+function getMimeType(fileName: string): string {
+  const ext = fileName.includes('.') ? fileName.slice(fileName.lastIndexOf('.')).toLowerCase() : '';
+  const map: Record<string, string> = {
+    '.pdf': 'application/pdf', '.ppt': 'application/vnd.ms-powerpoint',
+    '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    '.doc': 'application/msword', '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    '.txt': 'text/plain',
+  };
+  return map[ext] || 'application/octet-stream';
+}
+
+function getFileIcon(fileName: string): { icon: string; color: string } {
+  const ext = fileName.includes('.') ? fileName.slice(fileName.lastIndexOf('.')).toLowerCase() : '';
+  if (ext === '.pdf') return { icon: 'PDF', color: '#EF4444' };
+  if (['.ppt', '.pptx'].includes(ext)) return { icon: 'PPT', color: '#F97316' };
+  if (['.doc', '.docx'].includes(ext)) return { icon: 'DOC', color: '#3B82F6' };
+  if (['.xls', '.xlsx'].includes(ext)) return { icon: 'XLS', color: '#10B981' };
+  if (['.jpg', '.jpeg', '.png', '.gif'].includes(ext)) return { icon: 'IMG', color: '#8B5CF6' };
+  return { icon: 'FILE', color: '#6B7280' };
+}
+
 export default function MaterialsListScreen({ route }: any) {
-  const { courseInstanceId, subjectName, levelName } = route.params ?? {};
+  const { courseInstanceId } = route.params ?? {};
+  const { theme: t } = useThemeStore();
   const [data, setData] = useState<MaterialsByCourseResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -46,14 +63,8 @@ export default function MaterialsListScreen({ route }: any) {
     }
   };
 
-  useEffect(() => {
-    load();
-  }, [courseInstanceId]);
-
-  const onRefresh = () => {
-    setRefreshing(true);
-    load();
-  };
+  useEffect(() => { load(); }, [courseInstanceId]);
+  const onRefresh = () => { setRefreshing(true); load(); };
 
   const downloadAndOpen = async (material: MaterialItem) => {
     const token = getAuthToken();
@@ -63,93 +74,125 @@ export default function MaterialsListScreen({ route }: any) {
     try {
       const filename = material.fileName || `material-${material.materialId}`;
       const ext = filename.includes('.') ? filename.slice(filename.lastIndexOf('.')) : '';
-      const path = `${FileSystem.cacheDirectory}${material.materialId}${ext}`;
-      await FileSystem.downloadAsync(url, path, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const canShare = await Sharing.isAvailableAsync();
-      if (canShare) {
-        await Sharing.shareAsync(path, {
-          mimeType: getMimeType(filename),
-          dialogTitle: material.fileName,
-        });
+      
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const docDir = (FileSystem as any).documentDirectory as string;
+      const dirInfo = await FileSystem.getInfoAsync(docDir + 'downloads/');
+      if (!dirInfo.exists) {
+        await FileSystem.makeDirectoryAsync(docDir + 'downloads/', { intermediates: true });
+      }
+
+      const path = `${docDir}downloads/${material.materialId}${ext}`;
+      
+      const downloadResumable = FileSystem.createDownloadResumable(
+        url,
+        path,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      const result = await downloadResumable.downloadAsync();
+      
+      if (!result || result.status !== 200) {
+         throw new Error(`Server returned ${result?.status}`);
+      }
+
+      const mimeType = getMimeType(material.fileName);
+
+      if (Platform.OS === 'android') {
+        try {
+          const permissions = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
+          if (permissions.granted) {
+            // Read the downloaded file into base64
+            const base64 = await FileSystem.readAsStringAsync(result.uri, { encoding: FileSystem.EncodingType.Base64 });
+            // Create a new file in the user's chosen directory
+            const newUri = await FileSystem.StorageAccessFramework.createFileAsync(permissions.directoryUri, material.fileName, mimeType);
+            // Write the base64 content
+            await FileSystem.writeAsStringAsync(newUri, base64, { encoding: FileSystem.EncodingType.Base64 });
+            Alert.alert('Success', `File saved to ${material.fileName}`);
+          } else {
+            // Fallback to sharing if permission denied
+            await Sharing.shareAsync(result.uri, { mimeType, dialogTitle: material.fileName });
+          }
+        } catch (e: any) {
+          Alert.alert('Device Save Failed', e.message || 'Error saving file. Sharing instead.');
+          await Sharing.shareAsync(result.uri, { mimeType, dialogTitle: material.fileName });
+        }
       } else {
-        Alert.alert('Downloaded', `File saved. Path: ${path}`);
+        // iOS still relies on Sharing.shareAsync because there's no direct equivalent to SAF that doesn't use the share sheet
+        const canShare = await Sharing.isAvailableAsync();
+        if (canShare) {
+          await Sharing.shareAsync(result.uri, { mimeType, dialogTitle: material.fileName });
+        } else {
+          Alert.alert('Downloaded', `Saved to App Data: ${result.uri}`);
+        }
       }
     } catch (err: any) {
-      const msg = err.message ?? err.response?.data?.message ?? 'Download failed';
-      Alert.alert('Download failed', msg);
+      console.error('Download error details:', err);
+      Alert.alert('Download failed', err.message ?? 'Try again');
     } finally {
       setDownloadingId(null);
     }
   };
 
-  if (!courseInstanceId) {
-    return (
-      <View style={styles.centered}>
-        <Text style={styles.error}>Missing course. Go back and open Materials from a course.</Text>
-      </View>
-    );
-  }
+  if (!courseInstanceId) return (
+    <View style={[styles.centered, { backgroundColor: t.bg }]}>
+      <Text style={{ color: t.danger, textAlign: 'center' }}>Missing course. Go back.</Text>
+    </View>
+  );
 
-  if (loading && !data) {
-    return (
-      <View style={styles.centered}>
-        <ActivityIndicator size="large" color="#4f46e5" />
-      </View>
-    );
-  }
+  if (loading && !data) return (
+    <View style={[styles.centered, { backgroundColor: t.bg }]}><ActivityIndicator size="large" color={t.primary} /></View>
+  );
 
   const teacherMaterials = data?.teacherMaterials ?? [];
   const taMaterials = data?.taMaterials ?? [];
   const sections: SectionItem[] = [];
   if (teacherMaterials.length > 0) {
-    sections.push({ type: 'header', label: 'Teacher materials' });
+    sections.push({ type: 'header', label: 'Teacher Materials' });
     teacherMaterials.forEach((m) => sections.push({ type: 'material', material: m, section: 'teacher' }));
   }
   if (taMaterials.length > 0) {
-    sections.push({ type: 'header', label: 'TA materials' });
+    sections.push({ type: 'header', label: 'TA Materials' });
     taMaterials.forEach((m) => sections.push({ type: 'material', material: m, section: 'ta' }));
   }
 
   return (
     <FlatList
+      style={{ backgroundColor: t.bg }}
       data={sections}
       keyExtractor={(item) => (item.type === 'header' ? item.label : item.material.materialId)}
       contentContainerStyle={styles.list}
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#4f46e5']} />
-      }
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[t.primary]} tintColor={t.primary} />}
       ListEmptyComponent={
-        <View style={styles.empty}>
-          <Text style={styles.emptyText}>No materials for this course yet.</Text>
-        </View>
+        <View style={styles.empty}><Text style={[styles.emptyText, { color: t.textMuted }]}>No materials yet.</Text></View>
       }
       renderItem={({ item }) => {
         if (item.type === 'header') {
-          return <Text style={styles.sectionHeader}>{item.label}</Text>;
+          return <Text style={[styles.sectionHeader, { color: t.textMuted }]}>{item.label.toUpperCase()}</Text>;
         }
-        const { material, section } = item;
+        const { material } = item;
+        const { icon, color } = getFileIcon(material.fileName);
         const isDownloading = downloadingId === material.materialId;
         return (
           <TouchableOpacity
-            style={styles.row}
+            style={[styles.fileCard, { backgroundColor: t.surface, borderColor: t.border, ...t.shadow }]}
             onPress={() => downloadAndOpen(material)}
             disabled={isDownloading}
             activeOpacity={0.7}
           >
-            <View style={styles.rowContent}>
-              <Text style={styles.fileName} numberOfLines={2}>{material.fileName}</Text>
-              <Text style={styles.meta}>
-                {formatSize(material.fileSize)} • {formatDate(material.uploadedAt)}
-                {material.materialType ? ` • ${material.materialType}` : ''}
+            <View style={[styles.typeIcon, { backgroundColor: color + '22' }]}>
+              <Text style={[styles.typeText, { color }]}>{icon}</Text>
+            </View>
+            <View style={styles.fileInfo}>
+              <Text style={[styles.fileName, { color: t.text }]} numberOfLines={2}>{material.fileName}</Text>
+              <Text style={[styles.fileMeta, { color: t.textMuted }]}>
+                {formatSize(material.fileSize)} · {formatDate(material.uploadedAt)}
               </Text>
             </View>
-            {isDownloading ? (
-              <ActivityIndicator size="small" color="#4f46e5" />
-            ) : (
-              <Text style={styles.openLabel}>Open</Text>
-            )}
+            {isDownloading
+              ? <ActivityIndicator size="small" color={t.primary} />
+              : <Text style={[styles.openBtn, { color: t.primary }]}>↓</Text>
+            }
           </TouchableOpacity>
         );
       }}
@@ -157,45 +200,20 @@ export default function MaterialsListScreen({ route }: any) {
   );
 }
 
-function getMimeType(fileName: string): string {
-  const ext = fileName.includes('.') ? fileName.slice(fileName.lastIndexOf('.')).toLowerCase() : '';
-  const map: Record<string, string> = {
-    '.pdf': 'application/pdf',
-    '.ppt': 'application/vnd.ms-powerpoint',
-    '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-    '.doc': 'application/msword',
-    '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    '.txt': 'text/plain',
-  };
-  return map[ext] || 'application/octet-stream';
-}
-
 const styles = StyleSheet.create({
   list: { padding: 16, paddingBottom: 32 },
-  centered: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#f3f4f6', padding: 24 },
-  error: { color: '#dc2626', textAlign: 'center' },
-  empty: { padding: 24, alignItems: 'center' },
-  emptyText: { color: '#6b7280', fontSize: 14 },
-  sectionHeader: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#6b7280',
-    textTransform: 'uppercase',
-    marginTop: 16,
-    marginBottom: 8,
+  centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
+  empty: { padding: 40, alignItems: 'center' },
+  emptyText: { fontSize: 14 },
+  sectionHeader: { fontSize: 11, fontWeight: '800', letterSpacing: 1, marginTop: 16, marginBottom: 8 },
+  fileCard: {
+    flexDirection: 'row', alignItems: 'center', borderRadius: 14,
+    padding: 14, marginBottom: 8, borderWidth: 1, gap: 12,
   },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-  },
-  rowContent: { flex: 1, marginRight: 12 },
-  fileName: { fontSize: 15, fontWeight: '600', color: '#111', marginBottom: 4 },
-  meta: { fontSize: 12, color: '#6b7280' },
-  openLabel: { fontSize: 14, fontWeight: '600', color: '#4f46e5' },
+  typeIcon: { width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  typeText: { fontSize: 10, fontWeight: '900', letterSpacing: 0.5 },
+  fileInfo: { flex: 1 },
+  fileName: { fontSize: 14, fontWeight: '600', marginBottom: 3 },
+  fileMeta: { fontSize: 12 },
+  openBtn: { fontSize: 22, fontWeight: '700', paddingHorizontal: 4 },
 });

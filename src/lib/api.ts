@@ -3,7 +3,7 @@ import { getAuthToken, useAuthStore } from './store';
 
 export const API_BASE_URL =
   (typeof process !== 'undefined' && process.env?.EXPO_PUBLIC_API_URL) ||
-  'http://localhost:3000';
+  'https://ai-powered-college-platform-production.up.railway.app';
 
 const api = axios.create({
   baseURL: API_BASE_URL.replace(/\/$/, '') + '/api',
@@ -45,15 +45,14 @@ export interface DashboardResponse {
   student?: { studentId: string; studentName: string; studentCode: string; levelName: string; levelId: string };
   courses?: DashboardCourse[];
   stats?: {
-    totalQuizzes?: number;
-    completedQuizzes?: number;
     averageScore?: number;
     overallAttendance?: number;
     rank?: number | null;
     totalInLevel?: number;
+    completedQuizzes?: number;
+    totalQuizzes?: number;
   };
   scoreBySubject?: { subjectName: string; averageScore: number; attemptCount: number }[];
-  recentScores?: { date: string; score: number; quizTitle: string }[];
   leaderboard?: { rank: number; studentCode: string; studentName: string; averageScore: number; isCurrentUser?: boolean }[];
   currentYear?: unknown;
   prerequisiteTestEnabled?: boolean;
@@ -70,7 +69,6 @@ export interface DashboardCourse {
   teacher?: { teacherId: string; teacherName: string };
   ta?: { taId: string; taName: string } | null;
   materials?: { materialId: string; fileName: string; materialType: string; uploadedAt: string }[];
-  availableQuizzes?: unknown[];
   hasActiveAttendance?: boolean;
   attendance?: { courseInstanceId: string; totalSessions: number; attended: number; percentage: number };
 }
@@ -86,6 +84,18 @@ export const getChatMessages = (courseInstanceId: string, limit?: number, before
 
 export const sendChatText = (courseInstanceId: string, content: string) =>
   api.post<ChatMessage>(`/chat/rooms/${courseInstanceId}/messages/text`, { content });
+
+export const sendChatAttachments = (courseInstanceId: string, formData: FormData) =>
+  api.post<ChatMessage>(`/chat/rooms/${courseInstanceId}/messages/attachments`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 60000,
+  });
+
+export const sendChatPoll = (courseInstanceId: string, question: string, options: string[]) =>
+  api.post<ChatMessage>(`/chat/rooms/${courseInstanceId}/messages/poll`, { question, options });
+
+export const voteChatPoll = (messageId: string, optionIndex: number) =>
+  api.post(`/chat/polls/vote`, { messageId, optionIndex });
 
 export const getChatActivity = (limit?: number) =>
   api.get<ChatActivityItem[]>(`/chat/activity`, { params: { limit: limit ?? 50 } });
@@ -217,21 +227,69 @@ export interface MaterialsByCourseResponse {
   taMaterials: MaterialItem[];
 }
 
-// ——— Attendance (same backend as web) ———
-export const checkInAttendance = (code: string, courseInstanceId?: string) =>
-  api.post<{ message?: string }>('/attendance/checkin', { code, ...(courseInstanceId && { courseInstanceId }) });
+// ——— Attendance & Absence Excuses ———
+export const checkInAttendance = (code: string, courseInstanceId: string) =>
+  api.post<{ message: string; points: number }>('/attendance/check-in', { code, courseInstanceId });
 
-export const checkActiveSession = (courseInstanceId: string) =>
-  api.get<{ hasActiveSession?: boolean; code?: string }>(`/attendance/check/${courseInstanceId}`);
+export const submitQrScan = (token: string, scannedAt: string, courseInstanceId: string) =>
+  api.post<{ attemptId?: string; needWebAuthn?: boolean; options?: any; verified?: boolean; points?: number }>('/attendance/qr/scan', { token, scannedAt, courseInstanceId });
 
-export const submitQrScan = (qrToken: string, scannedAt: string, courseInstanceId: string) =>
-  api.post<{ needWebAuthn?: boolean; attemptId?: string; options?: unknown }>('/attendance/qr/scan', {
-    qrToken,
-    scannedAt,
-    courseInstanceId,
+export const completeQrAttendance = (attemptId: string, courseInstanceId: string, assertionResponse: any) =>
+  api.post<{ message: string; points: number }>('/attendance/qr/complete', { attemptId, courseInstanceId, assertionResponse });
+
+// Absence Reasons
+export const getSessionsForAbsenceReasons = (courseInstanceId: string) =>
+  api.get<any[]>(`/attendance/sessions/${courseInstanceId}/absence-reasons`);
+
+export const submitAbsenceReason = (sessionId: string, formData: FormData) =>
+  api.post<{ message: string }>(`/attendance/absence-reason/submit/${sessionId}`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
   });
 
-export const completeQrAttendance = (attemptId: string, courseInstanceId: string, assertionResponse: unknown) =>
-  api.post('/attendance/qr/complete', { attemptId, courseInstanceId, assertionResponse });
+export const submitAbsenceReasonRange = (courseInstanceId: string, formData: FormData) =>
+  api.post<{ message: string }>(`/attendance/absence-reason/range/submit/${courseInstanceId}`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+
+// ——— Notifications & Announcements ———
+export const getStudentNotifications = () =>
+  api.get<any[]>('/dashboard/student/notifications');
+
+export const getStudentAnnouncements = () =>
+  api.get<any[]>('/announcements/student');
+
+export const getStaffAnnouncements = () =>
+  api.get<any[]>('/announcements/staff');
+
+// ——— WebAuthn / Passkey Registration ———
+export const getWebAuthnRegisterStatus = (courseInstanceId: string) =>
+  api.get<{ canRegister: boolean; cooldownEnd?: string }>(`/attendance/webauthn/register-status/${courseInstanceId}`);
+
+export const getWebAuthnRegisterOptions = (courseInstanceId: string) =>
+  api.get<any>(`/attendance/webauthn/register-options/${courseInstanceId}`);
+
+export const verifyWebAuthnRegister = (courseInstanceId: string, response: any, expectedChallenge: string) =>
+  api.post<{ verified: boolean }>('/attendance/webauthn/register-verify', {
+    courseInstanceId,
+    response,
+    expectedChallenge,
+  });
+
+// ——— Transcripts ———
+export const getCourseTranscripts = (courseInstanceId: string) =>
+  api.get<any[]>(`/transcripts/course/${courseInstanceId}`);
+
+export const getTranscriptDetail = (transcriptId: string) =>
+  api.get<any>(`/transcripts/${transcriptId}`);
+
+// ——— Prerequisite Test ———
+export const generatePrerequisiteQuiz = (materialId: string, numberOfQuestions = 5) =>
+  api.post<{ questions: any[] }>('/ai/prerequisite-quiz', { materialId, numberOfQuestions });
+
+export const analyzeWeakTopics = (incorrectAnswers: { question: string; studentAnswer: string; correctAnswer: string }[]) =>
+  api.post<{ topics: string[]; studyPlan: string }>('/ai/analyze-weak-topics', { incorrectAnswers });
+
+export const getAiStatus = () =>
+  api.get<{ openai: boolean; qdrant: boolean; timestamp: string; qdrantError?: string }>('/ai/status');
 
 export default api;

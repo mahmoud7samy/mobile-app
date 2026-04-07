@@ -1,45 +1,33 @@
 import React, { useState, useEffect } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  TextInput,
-  TouchableOpacity,
-  ActivityIndicator,
-  ScrollView,
-  Platform,
+  View, Text, StyleSheet, TextInput,
+  TouchableOpacity, ActivityIndicator, ScrollView, Platform,
 } from 'react-native';
-import { BarCodeScanner } from 'expo-barcode-scanner';
-import { checkInAttendance, submitQrScan } from '../lib/api';
+import { CameraView, useCameraPermissions } from 'expo-camera';
+import { checkInAttendance, submitQrScan, completeQrAttendance } from '../lib/api';
+import { useThemeStore } from '../lib/themeStore';
+import { Passkey } from 'react-native-passkey';
 
 type Mode = 'choice' | 'code' | 'qr';
 
 export default function AttendanceScreen({ route }: any) {
   const { courseInstanceId, subjectName, levelName } = route.params ?? {};
+  const { theme: t } = useThemeStore();
   const [mode, setMode] = useState<Mode>('choice');
   const [code, setCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
-  const [cameraPermission, setCameraPermission] = useState<boolean | null>(null);
+  const [permission, requestPermission] = useCameraPermissions();
 
   useEffect(() => {
-    if (mode === 'qr') {
-      BarCodeScanner.requestPermissionsAsync().then(({ status }) =>
-        setCameraPermission(status === 'granted')
-      );
-    }
+    if (mode === 'qr' && !permission?.granted) requestPermission();
   }, [mode]);
 
   const handleCodeSubmit = async () => {
     const trimmed = code.replace(/\D/g, '');
-    if (trimmed.length !== 5) {
-      setError('Please enter a 5-digit code');
-      return;
-    }
-    setLoading(true);
-    setError('');
-    setMessage('');
+    if (trimmed.length !== 5) { setError('Please enter a 5-digit code'); return; }
+    setLoading(true); setError(''); setMessage('');
     try {
       const { data } = await checkInAttendance(trimmed, courseInstanceId);
       setMessage(data.message ?? 'Checked in successfully');
@@ -52,14 +40,18 @@ export default function AttendanceScreen({ route }: any) {
 
   const handleQrScanned = async (qrToken: string) => {
     if (!courseInstanceId || loading) return;
-    setLoading(true);
-    setError('');
-    setMessage('');
+    setLoading(true); setError(''); setMessage('');
     try {
       const { data } = await submitQrScan(qrToken, new Date().toISOString(), courseInstanceId);
       if (data?.needWebAuthn) {
-        setMessage('');
-        setError('QR attendance requires a passkey. Please complete this on the web app using a computer.');
+        // Prompt for Passkey natively
+        try {
+          const assertionResponse = await Passkey.get(data.options as any);
+          const { data: finalRes } = await completeQrAttendance(data.attemptId!, courseInstanceId, assertionResponse);
+          setMessage(finalRes.message || 'Attendance recorded.');
+        } catch (passErr: any) {
+          setError(passErr.message || 'Passkey verification cancelled or failed.');
+        }
       } else {
         setMessage('Attendance recorded.');
       }
@@ -70,164 +62,165 @@ export default function AttendanceScreen({ route }: any) {
     }
   };
 
-  if (!courseInstanceId) {
-    return (
-      <View style={styles.centered}>
-        <Text style={styles.error}>Missing course. Go back and open Attend from a course.</Text>
-      </View>
-    );
-  }
+  if (!courseInstanceId) return (
+    <View style={[styles.centered, { backgroundColor: t.bg }]}>
+      <Text style={{ color: t.danger, textAlign: 'center' }}>Missing course. Go back and open Attend from a course.</Text>
+    </View>
+  );
 
-  if (mode === 'choice') {
-    return (
-      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-        <Text style={styles.title}>Mark attendance</Text>
-        <Text style={styles.subtitle}>{subjectName}{levelName ? ` (${levelName})` : ''}</Text>
-        <Text style={styles.hint}>Choose how to check in:</Text>
-        <TouchableOpacity style={styles.optionBtn} onPress={() => setMode('code')}>
-          <Text style={styles.optionEmoji}>🔢</Text>
-          <Text style={styles.optionTitle}>Enter code</Text>
-          <Text style={styles.optionDesc}>Teacher shows a 5-digit code on screen</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.optionBtn} onPress={() => setMode('qr')}>
-          <Text style={styles.optionEmoji}>📷</Text>
-          <Text style={styles.optionTitle}>Scan QR</Text>
-          <Text style={styles.optionDesc}>Scan the QR code displayed by the teacher</Text>
-        </TouchableOpacity>
-      </ScrollView>
-    );
-  }
+  if (mode === 'choice') return (
+    <ScrollView style={[styles.container, { backgroundColor: t.bg }]} contentContainerStyle={styles.content}>
+      <Text style={[styles.title, { color: t.text }]}>Mark Attendance</Text>
+      <Text style={[styles.subtitle, { color: t.textMuted }]}>
+        {subjectName}{levelName ? ` · ${levelName}` : ''}
+      </Text>
 
-  if (mode === 'code') {
-    return (
-      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => { setMode('choice'); setCode(''); setError(''); setMessage(''); }}>
-          <Text style={styles.backBtnText}>← Back</Text>
-        </TouchableOpacity>
-        <Text style={styles.title}>Enter attendance code</Text>
-        <Text style={styles.hint}>Enter the 5-digit code shown by your teacher</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="12345"
-          placeholderTextColor="#9ca3af"
-          value={code}
-          onChangeText={(t) => { setCode(t.replace(/\D/g, '').slice(0, 5)); setError(''); }}
-          keyboardType="number-pad"
-          maxLength={5}
-          editable={!loading}
-        />
-        {error ? <Text style={styles.errText}>{error}</Text> : null}
-        {message ? <Text style={styles.msgText}>{message}</Text> : null}
-        <TouchableOpacity
-          style={[styles.submitBtn, loading && styles.submitBtnDisabled]}
-          onPress={handleCodeSubmit}
-          disabled={loading}
-        >
-          {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitBtnText}>Check in</Text>}
-        </TouchableOpacity>
-      </ScrollView>
-    );
-  }
+      <TouchableOpacity
+        style={[styles.choiceCard, { backgroundColor: t.surface, borderColor: t.primary, ...t.shadow }]}
+        onPress={() => setMode('code')} activeOpacity={0.8}
+      >
+        <View style={[styles.choiceIcon, { backgroundColor: t.primaryLight }]}>
+          <Text style={styles.choiceEmoji}>🔢</Text>
+        </View>
+        <Text style={[styles.choiceTitle, { color: t.text }]}>Enter Code</Text>
+        <Text style={[styles.choiceDesc, { color: t.textMuted }]}>Teacher shows a 5-digit code on screen</Text>
+      </TouchableOpacity>
 
-  // mode === 'qr'
-  if (Platform.OS === 'web') {
-    return (
-      <View style={styles.centered}>
-        <Text style={styles.hint}>QR scanning is not supported in the browser. Use the mobile app on a device, or use "Enter code" to check in.</Text>
-        <TouchableOpacity style={styles.backBtn} onPress={() => setMode('choice')}>
-          <Text style={styles.backBtnText}>← Back</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
-  if (cameraPermission === false) {
-    return (
-      <View style={styles.centered}>
-        <Text style={styles.errText}>Camera permission is required to scan QR codes.</Text>
-        <TouchableOpacity style={styles.backBtn} onPress={() => setMode('choice')}>
-          <Text style={styles.backBtnText}>← Back</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
+      <TouchableOpacity
+        style={[styles.choiceCard, { backgroundColor: t.surface, borderColor: t.border, ...t.shadow }]}
+        onPress={() => setMode('qr')} activeOpacity={0.8}
+      >
+        <View style={[styles.choiceIcon, { backgroundColor: t.primaryLight }]}>
+          <Text style={styles.choiceEmoji}>📷</Text>
+        </View>
+        <Text style={[styles.choiceTitle, { color: t.text }]}>Scan QR</Text>
+        <Text style={[styles.choiceDesc, { color: t.textMuted }]}>Point camera at the QR code displayed by teacher</Text>
+      </TouchableOpacity>
+    </ScrollView>
+  );
 
-  if (cameraPermission === null) {
-    return (
-      <View style={styles.centered}>
-        <ActivityIndicator size="large" color="#4f46e5" />
-        <Text style={styles.hint}>Requesting camera access...</Text>
-      </View>
-    );
-  }
+  if (mode === 'code') return (
+    <ScrollView style={[styles.container, { backgroundColor: t.bg }]} contentContainerStyle={styles.content}>
+      <TouchableOpacity onPress={() => { setMode('choice'); setCode(''); setError(''); setMessage(''); }}>
+        <Text style={[styles.backBtn, { color: t.primary }]}>← Back</Text>
+      </TouchableOpacity>
+      <Text style={[styles.title, { color: t.text }]}>Enter Code</Text>
+      <Text style={[styles.subtitle, { color: t.textMuted }]}>Enter the 5-digit code shown by your teacher</Text>
+
+      <TextInput
+        style={[styles.codeInput, { backgroundColor: t.surface, borderColor: code.length === 5 ? t.primary : t.border, color: t.text }]}
+        placeholder="_ _ _ _ _"
+        placeholderTextColor={t.textMuted}
+        value={code}
+        onChangeText={(v) => { setCode(v.replace(/\D/g, '').slice(0, 5)); setError(''); }}
+        keyboardType="number-pad"
+        maxLength={5}
+        editable={!loading}
+      />
+
+      {error ? <Text style={[styles.errText, { color: t.danger }]}>{error}</Text> : null}
+      {message ? <Text style={[styles.msgText, { color: t.success }]}>✓ {message}</Text> : null}
+
+      <TouchableOpacity
+        style={[styles.submitBtn, { backgroundColor: t.primary, opacity: loading ? 0.7 : 1 }]}
+        onPress={handleCodeSubmit} disabled={loading} activeOpacity={0.85}
+      >
+        {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitBtnText}>Check In</Text>}
+      </TouchableOpacity>
+    </ScrollView>
+  );
+
+  // QR mode
+  if (Platform.OS === 'web') return (
+    <View style={[styles.centered, { backgroundColor: t.bg }]}>
+      <Text style={{ color: t.textMuted, textAlign: 'center', marginBottom: 16 }}>QR scanning is not supported in the browser.</Text>
+      <TouchableOpacity onPress={() => setMode('choice')}>
+        <Text style={{ color: t.primary, fontWeight: '600' }}>← Back</Text>
+      </TouchableOpacity>
+    </View>
+  );
+
+  if (!permission) return (
+    <View style={[styles.centered, { backgroundColor: t.bg }]}>
+      <ActivityIndicator size="large" color={t.primary} />
+    </View>
+  );
+
+  if (!permission.granted) return (
+    <View style={[styles.centered, { backgroundColor: t.bg }]}>
+      <Text style={[styles.title, { color: t.text, textAlign: 'center' }]}>Camera Access Needed</Text>
+      <Text style={{ color: t.textMuted, textAlign: 'center', marginBottom: 20 }}>Allow camera to scan QR codes</Text>
+      <TouchableOpacity style={[styles.submitBtn, { backgroundColor: t.primary }]} onPress={requestPermission}>
+        <Text style={styles.submitBtnText}>Grant Permission</Text>
+      </TouchableOpacity>
+      <TouchableOpacity style={{ marginTop: 12 }} onPress={() => setMode('choice')}>
+        <Text style={{ color: t.primary, fontWeight: '600', fontSize: 15 }}>← Back</Text>
+      </TouchableOpacity>
+    </View>
+  );
 
   return (
-    <View style={styles.container}>
-      <TouchableOpacity style={[styles.backBtn, styles.backBtnOverlay]} onPress={() => { setMode('choice'); setError(''); setMessage(''); }}>
-        <Text style={styles.backBtnTextLight}>← Back</Text>
+    <View style={[styles.container, { backgroundColor: t.bg }]}>
+      <TouchableOpacity
+        style={[styles.backOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}
+        onPress={() => { setMode('choice'); setError(''); setMessage(''); }}
+      >
+        <Text style={{ color: '#fff', fontWeight: '700', fontSize: 15 }}>← Back</Text>
       </TouchableOpacity>
+
       <View style={styles.scannerWrap}>
-        <BarCodeScanner
+        <CameraView
           style={StyleSheet.absoluteFillObject}
-          onBarCodeScanned={loading ? undefined : ({ data }) => handleQrScanned(data)}
-          barCodeTypes={[BarCodeScanner.Constants.BarCodeType.qr]}
+          onBarcodeScanned={loading ? undefined : ({ data }) => handleQrScanned(data)}
+          barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
         />
+        {/* Corner frame overlay */}
+        <View style={styles.cornerTL} />
+        <View style={styles.cornerTR} />
+        <View style={styles.cornerBL} />
+        <View style={styles.cornerBR} />
       </View>
-      <View style={styles.scannerFooter}>
-        <Text style={styles.scannerHint}>Point your camera at the QR code</Text>
-        {error ? <Text style={styles.errText}>{error}</Text> : null}
-        {message ? <Text style={styles.msgText}>{message}</Text> : null}
-        {loading && <ActivityIndicator color="#4f46e5" style={{ marginTop: 8 }} />}
+
+      <View style={[styles.scannerFooter, { backgroundColor: t.surface }]}>
+        <Text style={[styles.scanHint, { color: t.textSecondary }]}>Point camera at the QR code</Text>
+        {error ? <Text style={[styles.errText, { color: t.danger }]}>{error}</Text> : null}
+        {message ? <Text style={[styles.msgText, { color: t.success }]}>✓ {message}</Text> : null}
+        {loading && <ActivityIndicator color={t.primary} style={{ marginTop: 8 }} />}
       </View>
     </View>
   );
 }
 
+const CORNER = { position: 'absolute' as const, width: 24, height: 24, borderColor: '#6C63FF', borderWidth: 3 };
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f3f4f6' },
-  content: { padding: 16, paddingTop: 8 },
+  container: { flex: 1 },
+  content: { padding: 20, paddingTop: 12 },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
-  backBtn: { alignSelf: 'flex-start', padding: 8, marginBottom: 16 },
-  backBtnOverlay: { position: 'absolute', top: 8, left: 8, zIndex: 10, backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 8, paddingVertical: 10, paddingHorizontal: 12 },
-  backBtnText: { fontSize: 16, color: '#4f46e5', fontWeight: '600' },
-  backBtnTextLight: { fontSize: 16, color: '#fff', fontWeight: '600' },
-  title: { fontSize: 22, fontWeight: '700', color: '#111', marginBottom: 8 },
-  subtitle: { fontSize: 14, color: '#6b7280', marginBottom: 24 },
-  hint: { fontSize: 14, color: '#6b7280', marginBottom: 16 },
-  optionBtn: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 20,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
+  title: { fontSize: 24, fontWeight: '800', marginBottom: 6 },
+  subtitle: { fontSize: 14, marginBottom: 28 },
+  backBtn: { fontSize: 16, fontWeight: '600', marginBottom: 20 },
+  choiceCard: {
+    borderRadius: 18, borderWidth: 1.5, padding: 20,
+    marginBottom: 14, alignItems: 'center',
   },
-  optionEmoji: { fontSize: 28, marginBottom: 8 },
-  optionTitle: { fontSize: 18, fontWeight: '600', color: '#111', marginBottom: 4 },
-  optionDesc: { fontSize: 14, color: '#6b7280' },
-  input: {
-    borderWidth: 1,
-    borderColor: '#d1d5db',
-    borderRadius: 8,
-    padding: 16,
-    fontSize: 24,
-    textAlign: 'center',
-    letterSpacing: 8,
-    color: '#111',
-    marginBottom: 12,
+  choiceIcon: { width: 64, height: 64, borderRadius: 18, alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
+  choiceEmoji: { fontSize: 30 },
+  choiceTitle: { fontSize: 18, fontWeight: '800', marginBottom: 4 },
+  choiceDesc: { fontSize: 13, textAlign: 'center' },
+  codeInput: {
+    fontSize: 32, fontWeight: '800', textAlign: 'center', letterSpacing: 16,
+    borderRadius: 16, borderWidth: 2, padding: 20, marginBottom: 16,
   },
-  errText: { color: '#dc2626', fontSize: 14, marginBottom: 8 },
-  msgText: { color: '#059669', fontSize: 14, marginBottom: 8 },
-  submitBtn: {
-    backgroundColor: '#4f46e5',
-    padding: 16,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginTop: 8,
-  },
-  submitBtnDisabled: { opacity: 0.7 },
-  submitBtnText: { color: '#fff', fontWeight: '600', fontSize: 16 },
-  scannerWrap: { flex: 1, minHeight: 300, overflow: 'hidden', borderRadius: 12, margin: 16 },
-  scannerFooter: { padding: 16, backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#e5e7eb' },
-  scannerHint: { fontSize: 14, color: '#6b7280', textAlign: 'center' },
-  error: { color: '#dc2626', textAlign: 'center' },
+  errText: { fontSize: 14, marginBottom: 8, textAlign: 'center' },
+  msgText: { fontSize: 14, marginBottom: 8, textAlign: 'center', fontWeight: '600' },
+  submitBtn: { borderRadius: 14, height: 52, alignItems: 'center', justifyContent: 'center', marginTop: 4 },
+  submitBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  backOverlay: { position: 'absolute', top: 16, left: 16, zIndex: 10, borderRadius: 10, paddingVertical: 8, paddingHorizontal: 14 },
+  scannerWrap: { flex: 1, margin: 16, borderRadius: 16, overflow: 'hidden' },
+  scannerFooter: { padding: 20, alignItems: 'center' },
+  scanHint: { fontSize: 15, fontWeight: '500' },
+  cornerTL: { ...CORNER, top: 12, left: 12, borderRightWidth: 0, borderBottomWidth: 0, borderTopLeftRadius: 6 },
+  cornerTR: { ...CORNER, top: 12, right: 12, borderLeftWidth: 0, borderBottomWidth: 0, borderTopRightRadius: 6 },
+  cornerBL: { ...CORNER, bottom: 12, left: 12, borderRightWidth: 0, borderTopWidth: 0, borderBottomLeftRadius: 6 },
+  cornerBR: { ...CORNER, bottom: 12, right: 12, borderLeftWidth: 0, borderTopWidth: 0, borderBottomRightRadius: 6 },
 });
