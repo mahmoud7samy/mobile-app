@@ -6,8 +6,8 @@ import {
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
-import { getTask, getTasksByCourse, submitTask, type TaskDetail, API_BASE_URL } from '../lib/api';
-import { getAuthToken } from '../lib/store';
+import { getTask, getTasksByCourse, submitTask, getSubmissionsForGrading, setTaskGrade, type TaskDetail, API_BASE_URL } from '../lib/api';
+import { getAuthToken, useAuthStore } from '../lib/store';
 import { useThemeStore } from '../lib/themeStore';
 
 function getMimeType(fileName: string): string {
@@ -24,10 +24,14 @@ function getMimeType(fileName: string): string {
 export default function TaskDetailScreen({ route }: any) {
   const { taskId } = route.params ?? {};
   const { theme: t } = useThemeStore();
+  const { user } = useAuthStore();
+  const isStudent = user?.role === 'student';
   const [task, setTask] = useState<TaskDetail | null>(null);
   const [submission, setSubmission] = useState<{ submitted: boolean; submittedAt?: string; grade?: number | null } | null>(null);
+  const [allSubmissions, setAllSubmissions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [gradingId, setGradingId] = useState<string | null>(null);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
   const load = async () => {
@@ -37,9 +41,14 @@ export default function TaskDetailScreen({ route }: any) {
       setTask(taskData);
       const courseId = taskData?.courseInstanceId;
       if (courseId) {
-        const { data: list } = await getTasksByCourse(courseId);
-        const item = Array.isArray(list) ? list.find((t) => t.taskId === taskId) : null;
-        setSubmission(item ? { submitted: item.submitted, submittedAt: item.submittedAt, grade: item.grade } : null);
+        if (isStudent) {
+          const { data: list } = await getTasksByCourse(courseId);
+          const item = Array.isArray(list) ? list.find((t) => t.taskId === taskId) : null;
+          setSubmission(item ? { submitted: item.submitted, submittedAt: item.submittedAt, grade: item.grade } : null);
+        } else {
+          const { data: subs } = await getSubmissionsForGrading(courseId);
+          setAllSubmissions((subs || []).filter((s: any) => s.taskId === taskId));
+        }
       } else {
         setSubmission(null);
       }
@@ -59,7 +68,7 @@ export default function TaskDetailScreen({ route }: any) {
     setDownloadingId(attachmentId);
     try {
       const ext = fileName.includes('.') ? fileName.slice(fileName.lastIndexOf('.')) : '';
-      
+
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const docDir = (FileSystem as any).documentDirectory as string;
       const dirInfo = await FileSystem.getInfoAsync(docDir + 'downloads/');
@@ -69,7 +78,7 @@ export default function TaskDetailScreen({ route }: any) {
 
       const path = `${docDir}downloads/${attachmentId}${ext}`;
       const url = `${API_BASE_URL.replace(/\/$/, '')}/api/tasks/attachments/${attachmentId}/download`;
-      
+
       const downloadResumable = FileSystem.createDownloadResumable(
         url,
         path,
@@ -77,9 +86,9 @@ export default function TaskDetailScreen({ route }: any) {
       );
 
       const result = await downloadResumable.downloadAsync();
-      
+
       if (!result || result.status !== 200) {
-         throw new Error(`Server returned ${result?.status}`);
+        throw new Error(`Server returned ${result?.status}`);
       }
 
       const mimeType = getMimeType(fileName);
@@ -131,6 +140,92 @@ export default function TaskDetailScreen({ route }: any) {
       Alert.alert('Submit failed', err.response?.data?.message ?? err.message ?? 'Try again');
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleGrade = (sub: any) => {
+    Alert.prompt(
+      'Grade Submission',
+      `Enter grade (out of ${task?.totalPoints})`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Save',
+          onPress: async (val?: string) => {
+            if (!val || isNaN(Number(val))) {
+              Alert.alert('Invalid grade', 'Please enter a valid number.');
+              return;
+            }
+            try {
+              setGradingId(sub.submissionId);
+              await setTaskGrade(sub.submissionId, Number(val));
+              Alert.alert('Success', 'Grade updated');
+              load();
+            } catch (err: any) {
+              Alert.alert('Error', err.response?.data?.message || 'Failed to update grade');
+            } finally {
+              setGradingId(null);
+            }
+          }
+        }
+      ],
+      'plain-text',
+      sub.grade?.toString() || ''
+    );
+  };
+
+  const downloadStudentSubmission = async (sub: any) => {
+    const token = getAuthToken();
+    if (!token) return;
+    setDownloadingId(sub.submissionId);
+    try {
+      // Very similar robust download function to regular task attachment, calling /tasks/submissions/:submissionId/download
+      const docDir = `${(FileSystem as any).documentDirectory}downloads/`;
+      const dirInfo = await FileSystem.getInfoAsync(docDir);
+      if (!dirInfo.exists) {
+        await FileSystem.makeDirectoryAsync(docDir, { intermediates: true });
+      }
+
+      const fileName = `submission_${sub.student.studentCode}.bin`;
+      const path = `${docDir}${fileName}`;
+      const url = `${API_BASE_URL.replace(/\/$/, '')}/api/tasks/submissions/${sub.submissionId}/download`;
+
+      const downloadResumable = FileSystem.createDownloadResumable(
+        url,
+        path,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      const result = await downloadResumable.downloadAsync();
+
+      if (!result || result.status !== 200) {
+        throw new Error(`Server returned ${result?.status}`);
+      }
+
+      if (Platform.OS === 'android') {
+        try {
+          const permissions = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
+          if (permissions.granted) {
+            const base64 = await FileSystem.readAsStringAsync(result.uri, { encoding: FileSystem.EncodingType.Base64 });
+            const newUri = await FileSystem.StorageAccessFramework.createFileAsync(permissions.directoryUri, fileName, 'application/octet-stream');
+            await FileSystem.writeAsStringAsync(newUri, base64, { encoding: FileSystem.EncodingType.Base64 });
+            Alert.alert('Success', `File saved`);
+          } else {
+            await Sharing.shareAsync(result.uri, { dialogTitle: fileName });
+          }
+        } catch (e: any) {
+          await Sharing.shareAsync(result.uri, { dialogTitle: fileName });
+        }
+      } else {
+        const canShare = await Sharing.isAvailableAsync();
+        if (canShare) {
+          await Sharing.shareAsync(result.uri, { dialogTitle: fileName });
+        }
+      }
+    } catch (err: any) {
+      Alert.alert('Download failed', err.message ?? 'Try again');
+    } finally {
+      setDownloadingId(null);
     }
   };
 
@@ -211,7 +306,46 @@ export default function TaskDetailScreen({ route }: any) {
         </View>
       ) : null}
 
-      {hasSubmission ? (
+      {!isStudent ? (
+        <View style={styles.submissionsSection}>
+          <Text style={[styles.sectionTitle, { color: t.text }]}>Student Submissions ({allSubmissions.length})</Text>
+          {allSubmissions.length === 0 ? (
+            <Text style={[styles.submitHint, { color: t.textMuted, fontStyle: 'italic' }]}>No submissions yet.</Text>
+          ) : (
+            allSubmissions.map((sub, idx) => (
+              <View key={sub.submissionId || idx} style={[styles.card, { backgroundColor: t.surface, borderColor: t.border }]}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: t.text, fontWeight: '700', fontSize: 16 }}>{sub.student?.studentName || sub.student?.studentCode}</Text>
+                    <Text style={{ color: t.textMuted, fontSize: 12 }}>{new Date(sub.submittedAt).toLocaleString()}</Text>
+                  </View>
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <Text style={{ color: sub.grade != null ? t.success : t.danger, fontWeight: '800' }}>
+                      {sub.grade != null ? `${sub.grade} / ${task.totalPoints}` : 'Needs Grading'}
+                    </Text>
+                  </View>
+                </View>
+                <View style={{ flexDirection: 'row', gap: 10 }}>
+                  <TouchableOpacity
+                    style={[styles.btnOutline, { borderColor: t.primary }]}
+                    onPress={() => downloadStudentSubmission(sub)}
+                    disabled={downloadingId === sub.submissionId}
+                  >
+                    {downloadingId === sub.submissionId ? <ActivityIndicator size="small" color={t.primary} /> : <Text style={{ color: t.primary, fontWeight: '700' }}>Download File</Text>}
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.btnSolid, { backgroundColor: t.primary }]}
+                    onPress={() => handleGrade(sub)}
+                    disabled={gradingId === sub.submissionId}
+                  >
+                    {gradingId === sub.submissionId ? <ActivityIndicator size="small" color="#fff" /> : <Text style={{ color: '#fff', fontWeight: '700' }}>Grade</Text>}
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ))
+          )}
+        </View>
+      ) : hasSubmission ? (
         <View style={[styles.card, { backgroundColor: t.successBg, borderColor: t.success + '44', ...t.shadow }]}>
           <Text style={[styles.submittedTitle, { color: t.success }]}>✓ Submitted</Text>
           {submission?.submittedAt && (
@@ -271,4 +405,8 @@ const styles = StyleSheet.create({
   submitHint: { fontSize: 13, marginBottom: 14, lineHeight: 18 },
   submitBtn: { borderRadius: 14, height: 52, alignItems: 'center', justifyContent: 'center' },
   submitBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  submissionsSection: { marginTop: 10 },
+  sectionTitle: { fontSize: 18, fontWeight: '800', marginBottom: 12 },
+  btnOutline: { flex: 1, borderWidth: 1, borderRadius: 10, paddingVertical: 10, alignItems: 'center' },
+  btnSolid: { flex: 1, borderRadius: 10, paddingVertical: 10, alignItems: 'center' },
 });

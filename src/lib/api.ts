@@ -21,7 +21,7 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      useAuthStore.getState().clearAuth().catch(() => {});
+      useAuthStore.getState().clearAuth().catch(() => { });
     }
     return Promise.reject(error);
   }
@@ -215,6 +215,12 @@ export interface TaskSubmission {
   totalPoints?: number;
 }
 
+export const getSubmissionsForGrading = (courseInstanceId: string) =>
+  api.get<any[]>(`/tasks/course/${courseInstanceId}/grading`);
+
+export const setTaskGrade = (submissionId: string, grade: number) =>
+  api.put<{ message: string }>(`/tasks/submissions/${submissionId}/grade`, { grade });
+
 // ——— Materials (same backend as web) ———
 export const getMaterials = (courseInstanceId: string) =>
   api.get<MaterialsByCourseResponse>(`/materials/course/${courseInstanceId}`);
@@ -258,6 +264,24 @@ export const submitAbsenceReasonRange = (courseInstanceId: string, formData: For
     headers: { 'Content-Type': 'multipart/form-data' },
   });
 
+export const getAttendanceReport = (courseInstanceId: string) =>
+  api.get<any>(`/attendance/report/${courseInstanceId}`);
+
+export const getAbsenceReasonSubmissions = (courseInstanceId: string) =>
+  api.get<any[]>(`/attendance/absence-reasons/course/${courseInstanceId}`);
+
+export const approveAbsenceReason = (submissionId: string) =>
+  api.post<{ message: string }>(`/attendance/absence-reason/${submissionId}/approve`);
+
+export const rejectAbsenceReason = (submissionId: string) =>
+  api.post<{ message: string }>(`/attendance/absence-reason/${submissionId}/reject`);
+
+export const approveAbsenceReasonRange = (submissionId: string) =>
+  api.post<{ message: string }>(`/attendance/absence-reason/range/${submissionId}/approve`);
+
+export const rejectAbsenceReasonRange = (submissionId: string) =>
+  api.post<{ message: string }>(`/attendance/absence-reason/range/${submissionId}/reject`);
+
 // ——— Notifications & Announcements ———
 export const getStudentNotifications = () =>
   api.get<any[]>('/dashboard/student/notifications');
@@ -267,6 +291,11 @@ export const getStudentAnnouncements = () =>
 
 export const getStaffAnnouncements = () =>
   api.get<any[]>('/announcements/staff');
+
+export const createCourseAnnouncement = (formData: FormData) =>
+  api.post<{ message: string }>('/announcements/course', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
 
 // ——— WebAuthn / Passkey Registration ———
 export const getWebAuthnRegisterStatus = (courseInstanceId: string) =>
@@ -288,6 +317,13 @@ export const getCourseTranscripts = (courseInstanceId: string) =>
 
 export const getTranscriptDetail = (transcriptId: string) =>
   api.get<any>(`/transcripts/${transcriptId}`);
+
+// ——— Quiz / Grades ———
+export const getCourseViolations = (courseInstanceId: string) =>
+  api.get<any[]>(`/quiz/course/${courseInstanceId}/violations`);
+
+export const getCourseGrades = (courseInstanceId: string) =>
+  api.get<any[]>(`/quiz/course/${courseInstanceId}/grades`);
 
 // ——— Prerequisite Test ———
 export const generatePrerequisiteQuiz = (materialId: string, numberOfQuestions = 5) =>

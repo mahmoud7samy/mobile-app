@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1070219699255",
+    "project_id": "edu-mobile-ab951",
+    "storage_bucket": "edu-mobile-ab951.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1070219699255:android:ea0c4672cee3ccbd488bb2",
+        "android_client_info": {
+          "package_name": "com.kfs.eduplatform"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA_Frl__Fj12NnVYKxNbLtuUWrXFV6OMRw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -14,6 +14,11 @@ import TranscriptListScreen from './src/screens/TranscriptListScreen';
 import TranscriptDetailScreen from './src/screens/TranscriptDetailScreen';
 import PrerequisiteTestScreen from './src/screens/PrerequisiteTestScreen';
 import AbsencesScreen from './src/screens/AbsencesScreen';
+import CreateAnnouncementScreen from './src/screens/CreateAnnouncementScreen';
+import TeacherAttendanceScreen from './src/screens/TeacherAttendanceScreen';
+import ReviewAbsencesScreen from './src/screens/ReviewAbsencesScreen';
+import TeacherGradesScreen from './src/screens/TeacherGradesScreen';
+import CheatingReportsScreen from './src/screens/CheatingReportsScreen';
 
 import NotificationsScreen from './src/screens/NotificationsScreen';
 import { useAuthStore } from './src/lib/store';
@@ -132,6 +137,31 @@ export default function App() {
               name="Absences"
               component={AbsencesScreen}
               options={{ headerShown: false }}
+            />
+            <Stack.Screen
+              name="CreateAnnouncement"
+              component={CreateAnnouncementScreen}
+              options={{ title: 'New Announcement' }}
+            />
+            <Stack.Screen
+              name="TeacherAttendance"
+              component={TeacherAttendanceScreen}
+              options={{ title: 'Attendance Report' }}
+            />
+            <Stack.Screen
+              name="ReviewAbsences"
+              component={ReviewAbsencesScreen}
+              options={{ title: 'Review Absences' }}
+            />
+            <Stack.Screen
+              name="TeacherGrades"
+              component={TeacherGradesScreen}
+              options={{ title: 'Course Grades' }}
+            />
+            <Stack.Screen
+              name="CheatingReports"
+              component={CheatingReportsScreen}
+              options={{ title: 'Cheating Flags' }}
             />
             <Stack.Screen
               name="Notifications"

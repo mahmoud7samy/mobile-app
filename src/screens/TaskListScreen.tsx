@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { getTasksByCourse, type TaskListItem } from '../lib/api';
 import { useThemeStore } from '../lib/themeStore';
+import { useAuthStore } from '../lib/store';
 
 function formatDeadline(iso: string) {
   const d = new Date(iso);
@@ -16,6 +17,8 @@ function formatDeadline(iso: string) {
 export default function TaskListScreen({ route, navigation }: any) {
   const { courseInstanceId, subjectName, levelName } = route.params ?? {};
   const { theme: t } = useThemeStore();
+  const { user } = useAuthStore();
+  const isStudent = user?.role === 'student';
   const [tasks, setTasks] = useState<TaskListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -81,16 +84,21 @@ export default function TaskListScreen({ route, navigation }: any) {
             </View>
 
             <View style={styles.badgeRow}>
-              {item.submitted && (
+              {isStudent && item.submitted && (
                 <View style={[styles.badge, { backgroundColor: t.successBg }]}>
                   <Text style={[styles.badgeText, { color: t.success }]}>
                     ✓ Submitted{item.grade != null ? ` · ${item.grade}/${item.totalPoints}` : ''}
                   </Text>
                 </View>
               )}
-              {overdue && !item.submitted && (
+              {isStudent && overdue && !item.submitted && (
                 <View style={[styles.badge, { backgroundColor: t.dangerBg }]}>
                   <Text style={[styles.badgeText, { color: t.danger }]}>⚠ Overdue</Text>
+                </View>
+              )}
+              {!isStudent && overdue && (
+                <View style={[styles.badge, { backgroundColor: t.surface2 }]}>
+                  <Text style={[styles.badgeText, { color: t.textSecondary }]}>Closed</Text>
                 </View>
               )}
               {item.attachments?.length ? (

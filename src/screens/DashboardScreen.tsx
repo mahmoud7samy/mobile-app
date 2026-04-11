@@ -17,6 +17,7 @@ import { useThemeStore } from '../lib/themeStore';
 import { Passkey } from 'react-native-passkey';
 import { Alert } from 'react-native';
 import Constants from 'expo-constants';
+import { Ionicons } from '@expo/vector-icons';
 
 export default function DashboardScreen({ navigation }: any) {
   const user = useAuthStore((s) => s.user);
@@ -52,11 +53,11 @@ export default function DashboardScreen({ navigation }: any) {
           return;
         }
       }
-      
+
       // 1. Check status
       const { data: status } = await getWebAuthnRegisterStatus(courseId);
       if (!status.canRegister) {
-        const msg = status.cooldownEnd 
+        const msg = status.cooldownEnd
           ? `You can register again after ${new Date(status.cooldownEnd).toLocaleDateString()}.`
           : "You cannot register a passkey for this course right now.";
         Alert.alert("Registration Locked", msg);
@@ -73,7 +74,7 @@ export default function DashboardScreen({ navigation }: any) {
         Alert.alert("Server Error", `Could not get passkey options from server.\n\n${msg}`);
         return;
       }
-      
+
       // 3. Create Passkey
       let response;
       try {
@@ -90,10 +91,10 @@ export default function DashboardScreen({ navigation }: any) {
         }
         return;
       }
-      
+
       // 4. Verify with server
       const { data: result } = await verifyWebAuthnRegister(courseId, response, options.challenge);
-      
+
       if (result.verified) {
         Alert.alert("Success", "Passkey registered successfully! You can now use biometrics for QR attendance.");
       }
@@ -228,8 +229,8 @@ export default function DashboardScreen({ navigation }: any) {
             {unreadNotifications && <View style={styles.redDot} />}
           </TouchableOpacity>
           {(user?.role === 'teacher' || user?.role === 'admin' || true) && (
-            <TouchableOpacity 
-              onPress={checkAiReadiness} 
+            <TouchableOpacity
+              onPress={checkAiReadiness}
               style={[styles.themeBtn, { backgroundColor: t.surface2, marginRight: 8 }]}
             >
               <Text style={{ fontSize: 16 }}>🛠️</Text>
@@ -276,12 +277,12 @@ export default function DashboardScreen({ navigation }: any) {
           </>
         ) : (
           <>
-            <StatPill icon="📚" label={`${stats.totalCourses ?? courses.length} Courses`} color="#10B981" bg={t.surface} border={t.border} text={t.text} />
-            <StatPill icon="👥" label={`${stats.totalStudents ?? 0} Students`} color="#3B82F6" bg={t.surface} border={t.border} text={t.text} />
-            <StatPill icon="🧪" label={`${stats.totalQuizzes ?? 0} Quizzes`} color="#8B5CF6" bg={t.surface} border={t.border} text={t.text} />
-            <StatPill icon="📄" label={`${stats.totalMaterials ?? 0} Materials`} color="#F59E0B" bg={t.surface} border={t.border} text={t.text} />
-            <StatPill icon="⭐" label={`${(stats.averageClassScore ?? 0).toFixed(1)}% Avg`} color="#EC4899" bg={t.surface} border={t.border} text={t.text} />
-            <StatPill icon="📍" label={`${(stats.overallAttendance ?? 0).toFixed(1)}% Attend`} color="#22C55E" bg={t.surface} border={t.border} text={t.text} />
+            <StatPill icon={<Ionicons name="book-outline" size={16} color="#10B981" />} label={`${stats.totalCourses ?? courses.length} Courses`} color="#10B981" bg={t.surface} border={t.border} text={t.text} />
+            <StatPill icon={<Ionicons name="people-outline" size={16} color="#3B82F6" />} label={`${stats.totalStudents ?? 0} Students`} color="#3B82F6" bg={t.surface} border={t.border} text={t.text} />
+            <StatPill icon={<Ionicons name="document-text-outline" size={16} color="#8B5CF6" />} label={`${stats.totalQuizzes ?? 0} Quizzes`} color="#8B5CF6" bg={t.surface} border={t.border} text={t.text} />
+            <StatPill icon={<Ionicons name="folder-open-outline" size={16} color="#F59E0B" />} label={`${stats.totalMaterials ?? 0} Materials`} color="#F59E0B" bg={t.surface} border={t.border} text={t.text} />
+            <StatPill icon={<Ionicons name="star-outline" size={16} color="#EC4899" />} label={`${(stats.averageClassScore ?? 0).toFixed(1)}% Avg`} color="#EC4899" bg={t.surface} border={t.border} text={t.text} />
+            <StatPill icon={<Ionicons name="checkmark-circle-outline" size={16} color="#22C55E" />} label={`${(stats.overallAttendance ?? 0).toFixed(1)}% Attend`} color="#22C55E" bg={t.surface} border={t.border} text={t.text} />
           </>
         )}
       </ScrollView>
@@ -334,14 +335,25 @@ export default function DashboardScreen({ navigation }: any) {
             <View style={styles.section}>
               <Text style={[styles.sectionTitle, { color: t.text }]}>Average Score by Course</Text>
               <View style={[styles.card, { backgroundColor: t.surface, borderColor: t.border, ...t.shadow }]}>
-                {scoreByCourse.map((s: any, idx: number) => (
-                  <View key={`${s.courseLabel ?? idx}`} style={[styles.row, { borderBottomColor: t.border }]}>
-                    <Text style={[styles.rowLabel, { color: t.textSecondary }]} numberOfLines={1}>
-                      {s.courseLabel ?? s.subjectName ?? 'Course'}
-                    </Text>
-                    <Text style={[styles.rowValue, { color: t.primary }]}>{(s.averageScore ?? 0).toFixed(1)}%</Text>
-                  </View>
-                ))}
+                {scoreByCourse.map((s: any, idx: number) => {
+                  const score = s.averageScore ?? 0;
+                  return (
+                    <View key={`${s.courseLabel ?? idx}`} style={[styles.row, { borderBottomColor: t.border, flexDirection: 'column', alignItems: 'stretch' }]}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
+                        <Text style={[styles.rowLabel, { color: t.textSecondary }]} numberOfLines={1}>
+                          {s.courseLabel ?? s.subjectName ?? 'Course'}
+                        </Text>
+                        <Text style={[styles.rowValue, { color: t.primary }]}>{score.toFixed(1)}%</Text>
+                      </View>
+                      <View style={[courseStyles.attBar, { backgroundColor: t.border, height: 6 }]}>
+                        <View style={[courseStyles.attFill, {
+                          backgroundColor: t.primary,
+                          width: `${Math.min(score, 100)}%` as any,
+                        }]} />
+                      </View>
+                    </View>
+                  );
+                })}
               </View>
             </View>
           )}
@@ -350,14 +362,26 @@ export default function DashboardScreen({ navigation }: any) {
             <View style={styles.section}>
               <Text style={[styles.sectionTitle, { color: t.text }]}>Attendance by Course</Text>
               <View style={[styles.card, { backgroundColor: t.surface, borderColor: t.border, ...t.shadow }]}>
-                {attendanceByCourse.map((a: any, idx: number) => (
-                  <View key={`${a.courseLabel ?? idx}`} style={[styles.row, { borderBottomColor: t.border }]}>
-                    <Text style={[styles.rowLabel, { color: t.textSecondary }]} numberOfLines={1}>
-                      {a.courseLabel ?? a.subjectName ?? 'Course'}
-                    </Text>
-                    <Text style={[styles.rowValue, { color: t.primary }]}>{(a.attendancePercentage ?? 0).toFixed(1)}%</Text>
-                  </View>
-                ))}
+                {attendanceByCourse.map((a: any, idx: number) => {
+                  const att = a.attendancePercentage ?? 0;
+                  const barColor = att >= 75 ? t.success : (att >= 50 ? '#F59E0B' : t.danger);
+                  return (
+                    <View key={`${a.courseLabel ?? idx}`} style={[styles.row, { borderBottomColor: t.border, flexDirection: 'column', alignItems: 'stretch' }]}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
+                        <Text style={[styles.rowLabel, { color: t.textSecondary }]} numberOfLines={1}>
+                          {a.courseLabel ?? a.subjectName ?? 'Course'}
+                        </Text>
+                        <Text style={[styles.rowValue, { color: barColor }]}>{att.toFixed(1)}%</Text>
+                      </View>
+                      <View style={[courseStyles.attBar, { backgroundColor: t.border, height: 6 }]}>
+                        <View style={[courseStyles.attFill, {
+                          backgroundColor: barColor,
+                          width: `${Math.min(att, 100)}%` as any,
+                        }]} />
+                      </View>
+                    </View>
+                  );
+                })}
               </View>
             </View>
           )}
@@ -365,20 +389,34 @@ export default function DashboardScreen({ navigation }: any) {
           {Array.isArray(topPerformersByLevel) && topPerformersByLevel.length > 0 && (
             <View style={styles.section}>
               <Text style={[styles.sectionTitle, { color: t.text }]}>Top Performers</Text>
-              <View style={[styles.card, { backgroundColor: t.surface, borderColor: t.border, ...t.shadow }]}>
+              <View style={[styles.card, { backgroundColor: t.surface, borderColor: t.border, paddingVertical: 8, ...t.shadow }]}>
                 {topPerformersByLevel.map((lvl: any, idx: number) => (
-                  <View key={`${lvl.levelId ?? idx}`} style={{ padding: 14, borderBottomWidth: idx === topPerformersByLevel.length - 1 ? 0 : StyleSheet.hairlineWidth, borderBottomColor: t.border }}>
-                    <Text style={{ color: t.text, fontWeight: '800', marginBottom: 8 }}>
+                  <View key={`${lvl.levelId ?? idx}`} style={{ paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: idx === topPerformersByLevel.length - 1 ? 0 : StyleSheet.hairlineWidth, borderBottomColor: t.border }}>
+                    <Text style={{ color: t.text, fontSize: 16, fontWeight: '800', marginBottom: 12 }}>
                       {lvl.levelName ?? 'Level'}
                     </Text>
-                    {(lvl.students ?? []).slice(0, 5).map((st: any, j: number) => (
-                      <View key={`${st.studentCode ?? j}`} style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
-                        <Text style={{ color: t.textSecondary, flex: 1 }} numberOfLines={1}>
-                          #{st.rank ?? (j + 1)} {st.studentName || st.studentCode}
-                        </Text>
-                        <Text style={{ color: t.primary, fontWeight: '700' }}>{(st.averageScore ?? 0).toFixed(1)}</Text>
-                      </View>
-                    ))}
+                    {(lvl.students ?? []).slice(0, 5).map((st: any, j: number) => {
+                      const rank = st.rank ?? (j + 1);
+                      let rankBadgeColor = t.surface2;
+                      let rankTextColor = t.textSecondary;
+                      if (rank === 1) { rankBadgeColor = '#FEF3C7'; rankTextColor = '#D97706'; } // Gold
+                      if (rank === 2) { rankBadgeColor = '#F1F5F9'; rankTextColor = '#64748B'; } // Silver
+                      if (rank === 3) { rankBadgeColor = '#FFEDD5'; rankTextColor = '#C2410C'; } // Bronze
+
+                      return (
+                        <View key={`${st.studentCode ?? j}`} style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10 }}>
+                          <View style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: rankBadgeColor, alignItems: 'center', justifyContent: 'center', marginRight: 10 }}>
+                            <Text style={{ color: rankTextColor, fontSize: 12, fontWeight: '800' }}>{rank}</Text>
+                          </View>
+                          <Text style={{ color: t.textSecondary, flex: 1, fontSize: 14, fontWeight: '500' }} numberOfLines={1}>
+                            {st.studentName || st.studentCode}
+                          </Text>
+                          <Text style={{ color: t.primary, fontWeight: '800', fontSize: 14 }}>
+                            {(st.averageScore ?? 0).toFixed(1)}
+                          </Text>
+                        </View>
+                      );
+                    })}
                   </View>
                 ))}
               </View>
@@ -400,9 +438,12 @@ export default function DashboardScreen({ navigation }: any) {
               onGroupChat={() => navigation.navigate('ChatRoom', { courseInstanceId: course.courseInstanceId, subjectName: course.subjectName, levelName: course.levelName })}
               onTasks={() => navigation.navigate('TaskList', { courseInstanceId: course.courseInstanceId, subjectName: course.subjectName, levelName: course.levelName })}
               onMaterials={() => navigation.navigate('MaterialsList', { courseInstanceId: course.courseInstanceId, subjectName: course.subjectName, levelName: course.levelName })}
-              onAttend={isStudent ? () => navigation.navigate('Attendance', { courseInstanceId: course.courseInstanceId, subjectName: course.subjectName, levelName: course.levelName }) : undefined}
+              onAttend={!isStudent ? () => navigation.navigate('TeacherAttendance', { courseInstanceId: course.courseInstanceId, subjectName: course.subjectName, levelName: course.levelName }) : () => navigation.navigate('Attendance', { courseInstanceId: course.courseInstanceId, subjectName: course.subjectName, levelName: course.levelName })}
               onTranscripts={() => navigation.navigate('TranscriptList', { courseInstanceId: course.courseInstanceId, subjectName: course.subjectName, levelName: course.levelName })}
-              onAbsences={isStudent ? () => navigation.navigate('Absences', { courseInstanceId: course.courseInstanceId, subjectName: course.subjectName, levelName: course.levelName, isPractical: course.courseType === 'practical' }) : undefined}
+              onAnnounce={!isStudent ? () => navigation.navigate('CreateAnnouncement', { courseInstanceId: course.courseInstanceId, subjectName: course.subjectName }) : undefined}
+              onAbsences={!isStudent ? () => navigation.navigate('ReviewAbsences', { courseInstanceId: course.courseInstanceId, subjectName: course.subjectName }) : () => navigation.navigate('Absences', { courseInstanceId: course.courseInstanceId, subjectName: course.subjectName, levelName: course.levelName, isPractical: course.courseType === 'practical' })}
+              onGrades={!isStudent ? () => navigation.navigate('TeacherGrades', { courseInstanceId: course.courseInstanceId, subjectName: course.subjectName }) : undefined}
+              onCheating={!isStudent ? () => navigation.navigate('CheatingReports', { courseInstanceId: course.courseInstanceId, subjectName: course.subjectName }) : undefined}
               onPasskey={isStudent ? () => handlePasskeySetup(course.courseInstanceId) : undefined}
               passkeyLoading={isStudent ? (passkeyLoading === course.courseInstanceId) : false}
               showPreTest={isStudent && prerequisiteTestEnabled}
@@ -417,10 +458,14 @@ export default function DashboardScreen({ navigation }: any) {
   );
 }
 
-function StatPill({ icon, label, color, bg, border, text }: { icon: string; label: string; color: string; bg: string; border: string; text: string }) {
+function StatPill({ icon, label, color, bg, border, text }: { icon: React.ReactNode | string; label: string; color: string; bg: string; border: string; text: string }) {
   return (
     <View style={[pillStyles.pill, { backgroundColor: bg, borderColor: border }]}>
-      <Text style={[pillStyles.icon, { color }]}>{icon}</Text>
+      {typeof icon === 'string' ? (
+        <Text style={[pillStyles.icon, { color }]}>{icon}</Text>
+      ) : (
+        <View style={pillStyles.nodeIcon}>{icon}</View>
+      )}
       <Text style={[pillStyles.label, { color: text }]}>{label}</Text>
     </View>
   );
@@ -434,14 +479,16 @@ const pillStyles = StyleSheet.create({
     marginRight: 10,
   },
   icon: { fontSize: 14, marginRight: 6 },
+  nodeIcon: { marginRight: 6 },
   label: { fontSize: 13, fontWeight: '600' },
 });
 
-function CourseCard({ course, theme: t, onGroupChat, onTasks, onMaterials, onAttend, onTranscripts, onAbsences, onPasskey, passkeyLoading, showPreTest, onPreTest }: {
+function CourseCard({ course, theme: t, onGroupChat, onTasks, onMaterials, onAttend, onTranscripts, onAbsences, onPasskey, passkeyLoading, showPreTest, onPreTest, onAnnounce, onGrades, onCheating }: {
   course: DashboardCourse; theme: any;
   onGroupChat: () => void; onTasks: () => void; onMaterials: () => void;
   onAttend?: () => void; onTranscripts: () => void; onAbsences?: () => void; onPasskey?: () => void; passkeyLoading?: boolean;
-  showPreTest?: boolean; onPreTest?: () => void;
+  showPreTest?: boolean; onPreTest?: () => void; onAnnounce?: () => void;
+  onGrades?: () => void; onCheating?: () => void;
 }) {
   const isPractical = course.courseType === 'practical';
   const att = course.attendance;
@@ -490,17 +537,20 @@ function CourseCard({ course, theme: t, onGroupChat, onTasks, onMaterials, onAtt
         <ActionBtn label="Tasks" onPress={onTasks} bg={t.surface2} text={t.textSecondary} />
         <ActionBtn label="Materials" onPress={onMaterials} bg={t.surface2} text={t.textSecondary} />
         <ActionBtn label="Transcripts" onPress={onTranscripts} bg={t.surface2} text={t.textSecondary} />
+        {onAnnounce && <ActionBtn label="Announce" onPress={onAnnounce} bg={t.primaryLight} text={t.primary} />}
         {onAttend && <ActionBtn label="Attendance" onPress={onAttend} bg={t.surface2} text={t.textSecondary} />}
         {onAbsences && <ActionBtn label="Absences" onPress={onAbsences} bg={t.surface2} text={t.textSecondary} />}
+        {onGrades && <ActionBtn label="Grades" onPress={onGrades} bg={t.surface2} text={t.textSecondary} />}
+        {onCheating && <ActionBtn label="Cheating Flags" onPress={onCheating} bg={'rgba(239, 68, 68, 0.15)'} text={'#EF4444'} />}
         {showPreTest && onPreTest && (
           <ActionBtn label="Pre-Test" onPress={onPreTest} bg={t.primaryLight} text={t.primary} />
         )}
         {onPasskey && (
-          <ActionBtn 
-            label={passkeyLoading ? "Setting up..." : "Passkey"} 
-            onPress={onPasskey} 
-            bg={t.surface2} 
-            text={t.textSecondary} 
+          <ActionBtn
+            label={passkeyLoading ? "Setting up..." : "Passkey"}
+            onPress={onPasskey}
+            bg={t.surface2}
+            text={t.textSecondary}
           />
         )}
       </View>

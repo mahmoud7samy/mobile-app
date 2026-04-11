@@ -4,6 +4,7 @@ import {
   StyleSheet, ActivityIndicator, KeyboardAvoidingView,
   Platform, StatusBar,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { login } from '../lib/api';
 import { useAuthStore } from '../lib/store';
 import { useThemeStore } from '../lib/themeStore';
@@ -52,7 +53,7 @@ export default function LoginScreen() {
 
       {/* Header branding */}
       <View style={styles.header}>
-        <Text style={styles.logo}>🎓</Text>
+        <Ionicons name="school" size={64} color={t.primary} style={styles.logoIcon} />
         <Text style={[styles.appName, { color: t.text }]}>AI College Platform</Text>
         <Text style={[styles.tagline, { color: t.primary }]}>Your smart campus companion</Text>
       </View>
@@ -63,13 +64,15 @@ export default function LoginScreen() {
 
         {error ? (
           <View style={[styles.errorBox, { backgroundColor: t.dangerBg }]}>
-            <Text style={[styles.errorText, { color: t.danger }]}>⚠ {error}</Text>
+            <Text style={[styles.errorText, { color: t.danger }]}>
+              <Ionicons name="warning" size={14} /> {error}
+            </Text>
           </View>
         ) : null}
 
         {/* Username */}
         <View style={[styles.inputWrap, { backgroundColor: t.surface2, borderColor: t.border }]}>
-          <Text style={[styles.inputIcon, { color: t.textMuted }]}>👤</Text>
+          <Ionicons name="person-outline" size={20} color={t.textMuted} style={styles.inputIcon} />
           <TextInput
             style={[styles.input, { color: t.text }]}
             placeholder="Username"
@@ -83,7 +86,7 @@ export default function LoginScreen() {
 
         {/* Password */}
         <View style={[styles.inputWrap, { backgroundColor: t.surface2, borderColor: t.border }]}>
-          <Text style={[styles.inputIcon, { color: t.textMuted }]}>🔒</Text>
+          <Ionicons name="lock-closed-outline" size={20} color={t.textMuted} style={styles.inputIcon} />
           <TextInput
             style={[styles.input, { color: t.text }]}
             placeholder="Password"
@@ -94,7 +97,7 @@ export default function LoginScreen() {
             editable={!loading}
           />
           <TouchableOpacity onPress={() => setShowPass(!showPass)} style={styles.eyeBtn}>
-            <Text style={{ color: t.textMuted, fontSize: 16 }}>{showPass ? '🙈' : '👁️'}</Text>
+            <Ionicons name={showPass ? 'eye-off-outline' : 'eye-outline'} size={20} color={t.textMuted} />
           </TouchableOpacity>
         </View>
 
@@ -111,7 +114,9 @@ export default function LoginScreen() {
           }
         </TouchableOpacity>
 
-        <Text style={[styles.secureNote, { color: t.textMuted }]}>🔐 Secure · Encrypted · Campus Access</Text>
+        <Text style={[styles.secureNote, { color: t.textMuted }]}>
+          <Ionicons name="shield-checkmark-outline" size={12} /> Secure · Encrypted · Campus Access
+        </Text>
       </View>
     </KeyboardAvoidingView>
   );
@@ -124,7 +129,7 @@ const styles = StyleSheet.create({
     width: 300, height: 300, borderRadius: 150, opacity: 0.1,
   },
   header: { alignItems: 'center', marginBottom: 32 },
-  logo: { fontSize: 52, marginBottom: 12 },
+  logoIcon: { marginBottom: 12 },
   appName: { fontSize: 26, fontWeight: '800', letterSpacing: -0.5, marginBottom: 6 },
   tagline: { fontSize: 14, fontWeight: '500' },
   card: { borderRadius: 20, padding: 24 },
