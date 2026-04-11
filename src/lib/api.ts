@@ -45,12 +45,19 @@ export interface DashboardResponse {
   student?: { studentId: string; studentName: string; studentCode: string; levelName: string; levelId: string };
   courses?: DashboardCourse[];
   stats?: {
+    // Student stats
     averageScore?: number;
     overallAttendance?: number;
     rank?: number | null;
     totalInLevel?: number;
     completedQuizzes?: number;
     totalQuizzes?: number;
+
+    // Teacher / TA stats
+    totalCourses?: number;
+    totalStudents?: number;
+    totalMaterials?: number;
+    averageClassScore?: number;
   };
   scoreBySubject?: { subjectName: string; averageScore: number; attemptCount: number }[];
   leaderboard?: { rank: number; studentCode: string; studentName: string; averageScore: number; isCurrentUser?: boolean }[];
@@ -284,10 +291,19 @@ export const getTranscriptDetail = (transcriptId: string) =>
 
 // ——— Prerequisite Test ———
 export const generatePrerequisiteQuiz = (materialId: string, numberOfQuestions = 5) =>
-  api.post<{ questions: any[] }>('/ai/prerequisite-quiz', { materialId, numberOfQuestions });
+  api.post<{ questions: any[] }>(
+    '/ai/prerequisite-quiz',
+    { materialId, numberOfQuestions },
+    // AI generation can exceed 30s, especially if indexing runs first.
+    { timeout: 120000 }
+  );
 
 export const analyzeWeakTopics = (incorrectAnswers: { question: string; studentAnswer: string; correctAnswer: string }[]) =>
-  api.post<{ topics: string[]; studyPlan: string }>('/ai/analyze-weak-topics', { incorrectAnswers });
+  api.post<{ topics: string[]; studyPlan: string }>(
+    '/ai/analyze-weak-topics',
+    { incorrectAnswers },
+    { timeout: 120000 }
+  );
 
 export const getAiStatus = () =>
   api.get<{ openai: boolean; qdrant: boolean; timestamp: string; qdrantError?: string }>('/ai/status');

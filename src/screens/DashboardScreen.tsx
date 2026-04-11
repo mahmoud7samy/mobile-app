@@ -16,6 +16,7 @@ import { useAuthStore } from '../lib/store';
 import { useThemeStore } from '../lib/themeStore';
 import { Passkey } from 'react-native-passkey';
 import { Alert } from 'react-native';
+import Constants from 'expo-constants';
 
 export default function DashboardScreen({ navigation }: any) {
   const user = useAuthStore((s) => s.user);
@@ -31,6 +32,26 @@ export default function DashboardScreen({ navigation }: any) {
   const handlePasskeySetup = async (courseId: string) => {
     try {
       setPasskeyLoading(courseId);
+
+      // Passkeys won't work in Expo Go; require a dev build / production build.
+      const ownership = (Constants as any)?.appOwnership;
+      if (ownership === 'expo') {
+        Alert.alert(
+          'Passkeys Not Supported Here',
+          'Passkeys require a Development Build or a Production build (Expo Go does not support native passkey modules). Build the app with EAS and try again.'
+        );
+        return;
+      }
+      if (typeof (Passkey as any)?.isSupported === 'function') {
+        const supported = await (Passkey as any).isSupported();
+        if (!supported) {
+          Alert.alert(
+            'Not Supported',
+            'This device does not support passkeys. You need a device with secure screen lock/biometrics enabled.'
+          );
+          return;
+        }
+      }
       
       // 1. Check status
       const { data: status } = await getWebAuthnRegisterStatus(courseId);
@@ -80,7 +101,10 @@ export default function DashboardScreen({ navigation }: any) {
       console.error('[Passkey]', err);
       const msg = err.response?.data?.message || err.message || "Failed to set up passkey.";
       if (msg.toLowerCase().includes('network')) {
-        Alert.alert("Network Error", "Cannot reach the server. Check your internet connection and make sure the backend has WEBAUTHN_RP_ID configured.");
+        Alert.alert(
+          "Network Error",
+          "Cannot reach the server. Check your internet connection and make sure Railway env vars are set (WEBAUTHN_RP_ID and WEBAUTHN_ORIGIN) and that `/.well-known/assetlinks.json` is reachable."
+        );
       } else {
         Alert.alert("Error", msg);
       }
@@ -163,13 +187,19 @@ export default function DashboardScreen({ navigation }: any) {
   }
 
   const isStudent = user?.role === 'student';
-  const stats = data?.stats ?? {};
+  const isTeacher = user?.role === 'teacher';
+  const isTa = user?.role === 'ta';
+  const stats = (data?.stats ?? {}) as NonNullable<DashboardResponse['stats']>;
   const courses = data?.courses ?? [];
   const scoreBySubject = data?.scoreBySubject ?? [];
+  const scoreByCourse = (data as any)?.scoreByCourse ?? [];
+  const attendanceByCourse = (data as any)?.attendanceByCourse ?? [];
+  const topPerformersByLevel = (data as any)?.topPerformersByLevel ?? [];
   const recentScores = data?.recentScores ?? [];
   const leaderboard = data?.leaderboard ?? [];
   const student = data?.student;
-  const prerequisiteTestEnabled = (data as any)?.prerequisiteTestEnabled ?? false;
+  // Match web behavior: if setting is missing, default to enabled.
+  const prerequisiteTestEnabled = (data as any)?.prerequisiteTestEnabled ?? true;
   const levelName = student?.levelName ?? '';
   const studentName = student?.studentName ?? user?.profileName ?? user?.username ?? '';
   const initials = studentName.split(' ').map((w: string) => w[0]).join('').slice(0, 2).toUpperCase();
@@ -236,11 +266,24 @@ export default function DashboardScreen({ navigation }: any) {
 
       {/* Stats pills */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.statsRow} contentContainerStyle={styles.statsContent}>
-        <StatPill icon="🏆" label={stats.rank != null ? `#${stats.rank} Rank` : '— Rank'} color="#F59E0B" bg={t.surface} border={t.border} text={t.text} />
-        <StatPill icon="⭐" label={`${(stats.averageScore ?? 0).toFixed(1)}% Avg`} color="#3B82F6" bg={t.surface} border={t.border} text={t.text} />
-        <StatPill icon="✍️" label={`${stats.completedQuizzes ?? 0} Quizzes Taken`} color="#8B5CF6" bg={t.surface} border={t.border} text={t.text} />
-        <StatPill icon="📚" label={`${courses.length} Courses`} color="#10B981" bg={t.surface} border={t.border} text={t.text} />
-        <StatPill icon="📍" label={`${(stats.overallAttendance ?? 0).toFixed(0)}% Attend`} color="#EC4899" bg={t.surface} border={t.border} text={t.text} />
+        {isStudent ? (
+          <>
+            <StatPill icon="🏆" label={stats.rank != null ? `#${stats.rank} Rank` : '— Rank'} color="#F59E0B" bg={t.surface} border={t.border} text={t.text} />
+            <StatPill icon="⭐" label={`${(stats.averageScore ?? 0).toFixed(1)}% Avg`} color="#3B82F6" bg={t.surface} border={t.border} text={t.text} />
+            <StatPill icon="✍️" label={`${stats.completedQuizzes ?? 0} Quizzes Taken`} color="#8B5CF6" bg={t.surface} border={t.border} text={t.text} />
+            <StatPill icon="📚" label={`${courses.length} Courses`} color="#10B981" bg={t.surface} border={t.border} text={t.text} />
+            <StatPill icon="📍" label={`${(stats.overallAttendance ?? 0).toFixed(0)}% Attend`} color="#EC4899" bg={t.surface} border={t.border} text={t.text} />
+          </>
+        ) : (
+          <>
+            <StatPill icon="📚" label={`${stats.totalCourses ?? courses.length} Courses`} color="#10B981" bg={t.surface} border={t.border} text={t.text} />
+            <StatPill icon="👥" label={`${stats.totalStudents ?? 0} Students`} color="#3B82F6" bg={t.surface} border={t.border} text={t.text} />
+            <StatPill icon="🧪" label={`${stats.totalQuizzes ?? 0} Quizzes`} color="#8B5CF6" bg={t.surface} border={t.border} text={t.text} />
+            <StatPill icon="📄" label={`${stats.totalMaterials ?? 0} Materials`} color="#F59E0B" bg={t.surface} border={t.border} text={t.text} />
+            <StatPill icon="⭐" label={`${(stats.averageClassScore ?? 0).toFixed(1)}% Avg`} color="#EC4899" bg={t.surface} border={t.border} text={t.text} />
+            <StatPill icon="📍" label={`${(stats.overallAttendance ?? 0).toFixed(1)}% Attend`} color="#22C55E" bg={t.surface} border={t.border} text={t.text} />
+          </>
+        )}
       </ScrollView>
 
       {isStudent && (
@@ -285,11 +328,70 @@ export default function DashboardScreen({ navigation }: any) {
         </>
       )}
 
+      {(isTeacher || isTa) && (
+        <>
+          {Array.isArray(scoreByCourse) && scoreByCourse.length > 0 && (
+            <View style={styles.section}>
+              <Text style={[styles.sectionTitle, { color: t.text }]}>Average Score by Course</Text>
+              <View style={[styles.card, { backgroundColor: t.surface, borderColor: t.border, ...t.shadow }]}>
+                {scoreByCourse.map((s: any, idx: number) => (
+                  <View key={`${s.courseLabel ?? idx}`} style={[styles.row, { borderBottomColor: t.border }]}>
+                    <Text style={[styles.rowLabel, { color: t.textSecondary }]} numberOfLines={1}>
+                      {s.courseLabel ?? s.subjectName ?? 'Course'}
+                    </Text>
+                    <Text style={[styles.rowValue, { color: t.primary }]}>{(s.averageScore ?? 0).toFixed(1)}%</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+          )}
+
+          {Array.isArray(attendanceByCourse) && attendanceByCourse.length > 0 && (
+            <View style={styles.section}>
+              <Text style={[styles.sectionTitle, { color: t.text }]}>Attendance by Course</Text>
+              <View style={[styles.card, { backgroundColor: t.surface, borderColor: t.border, ...t.shadow }]}>
+                {attendanceByCourse.map((a: any, idx: number) => (
+                  <View key={`${a.courseLabel ?? idx}`} style={[styles.row, { borderBottomColor: t.border }]}>
+                    <Text style={[styles.rowLabel, { color: t.textSecondary }]} numberOfLines={1}>
+                      {a.courseLabel ?? a.subjectName ?? 'Course'}
+                    </Text>
+                    <Text style={[styles.rowValue, { color: t.primary }]}>{(a.attendancePercentage ?? 0).toFixed(1)}%</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+          )}
+
+          {Array.isArray(topPerformersByLevel) && topPerformersByLevel.length > 0 && (
+            <View style={styles.section}>
+              <Text style={[styles.sectionTitle, { color: t.text }]}>Top Performers</Text>
+              <View style={[styles.card, { backgroundColor: t.surface, borderColor: t.border, ...t.shadow }]}>
+                {topPerformersByLevel.map((lvl: any, idx: number) => (
+                  <View key={`${lvl.levelId ?? idx}`} style={{ padding: 14, borderBottomWidth: idx === topPerformersByLevel.length - 1 ? 0 : StyleSheet.hairlineWidth, borderBottomColor: t.border }}>
+                    <Text style={{ color: t.text, fontWeight: '800', marginBottom: 8 }}>
+                      {lvl.levelName ?? 'Level'}
+                    </Text>
+                    {(lvl.students ?? []).slice(0, 5).map((st: any, j: number) => (
+                      <View key={`${st.studentCode ?? j}`} style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
+                        <Text style={{ color: t.textSecondary, flex: 1 }} numberOfLines={1}>
+                          #{st.rank ?? (j + 1)} {st.studentName || st.studentCode}
+                        </Text>
+                        <Text style={{ color: t.primary, fontWeight: '700' }}>{(st.averageScore ?? 0).toFixed(1)}</Text>
+                      </View>
+                    ))}
+                  </View>
+                ))}
+              </View>
+            </View>
+          )}
+        </>
+      )}
+
       {/* My Courses */}
       <View style={styles.section}>
         <Text style={[styles.sectionTitle, { color: t.text }]}>My Courses</Text>
         {courses.length === 0
-          ? <Text style={[styles.empty, { color: t.textMuted }]}>No courses enrolled yet.</Text>
+          ? <Text style={[styles.empty, { color: t.textMuted }]}>{isStudent ? 'No courses enrolled yet.' : 'No active courses yet.'}</Text>
           : courses.map((course) => (
             <CourseCard
               key={course.courseInstanceId}
@@ -298,11 +400,11 @@ export default function DashboardScreen({ navigation }: any) {
               onGroupChat={() => navigation.navigate('ChatRoom', { courseInstanceId: course.courseInstanceId, subjectName: course.subjectName, levelName: course.levelName })}
               onTasks={() => navigation.navigate('TaskList', { courseInstanceId: course.courseInstanceId, subjectName: course.subjectName, levelName: course.levelName })}
               onMaterials={() => navigation.navigate('MaterialsList', { courseInstanceId: course.courseInstanceId, subjectName: course.subjectName, levelName: course.levelName })}
-              onAttend={() => navigation.navigate('Attendance', { courseInstanceId: course.courseInstanceId, subjectName: course.subjectName, levelName: course.levelName })}
+              onAttend={isStudent ? () => navigation.navigate('Attendance', { courseInstanceId: course.courseInstanceId, subjectName: course.subjectName, levelName: course.levelName }) : undefined}
               onTranscripts={() => navigation.navigate('TranscriptList', { courseInstanceId: course.courseInstanceId, subjectName: course.subjectName, levelName: course.levelName })}
-              onAbsences={() => navigation.navigate('Absences', { courseInstanceId: course.courseInstanceId, subjectName: course.subjectName, levelName: course.levelName, isPractical: course.courseType === 'practical' })}
-              onPasskey={() => handlePasskeySetup(course.courseInstanceId)}
-              passkeyLoading={passkeyLoading === course.courseInstanceId}
+              onAbsences={isStudent ? () => navigation.navigate('Absences', { courseInstanceId: course.courseInstanceId, subjectName: course.subjectName, levelName: course.levelName, isPractical: course.courseType === 'practical' }) : undefined}
+              onPasskey={isStudent ? () => handlePasskeySetup(course.courseInstanceId) : undefined}
+              passkeyLoading={isStudent ? (passkeyLoading === course.courseInstanceId) : false}
               showPreTest={isStudent && prerequisiteTestEnabled}
               onPreTest={() => navigation.navigate('PrerequisiteTest', { materials: (course as any).materials ?? [], subjectName: course.subjectName })}
             />
@@ -338,7 +440,7 @@ const pillStyles = StyleSheet.create({
 function CourseCard({ course, theme: t, onGroupChat, onTasks, onMaterials, onAttend, onTranscripts, onAbsences, onPasskey, passkeyLoading, showPreTest, onPreTest }: {
   course: DashboardCourse; theme: any;
   onGroupChat: () => void; onTasks: () => void; onMaterials: () => void;
-  onAttend: () => void; onTranscripts: () => void; onAbsences: () => void; onPasskey: () => void; passkeyLoading?: boolean;
+  onAttend?: () => void; onTranscripts: () => void; onAbsences?: () => void; onPasskey?: () => void; passkeyLoading?: boolean;
   showPreTest?: boolean; onPreTest?: () => void;
 }) {
   const isPractical = course.courseType === 'practical';
@@ -388,17 +490,19 @@ function CourseCard({ course, theme: t, onGroupChat, onTasks, onMaterials, onAtt
         <ActionBtn label="Tasks" onPress={onTasks} bg={t.surface2} text={t.textSecondary} />
         <ActionBtn label="Materials" onPress={onMaterials} bg={t.surface2} text={t.textSecondary} />
         <ActionBtn label="Transcripts" onPress={onTranscripts} bg={t.surface2} text={t.textSecondary} />
-        <ActionBtn label="Attendance" onPress={onAttend} bg={t.surface2} text={t.textSecondary} />
-        <ActionBtn label="Absences" onPress={onAbsences} bg={t.surface2} text={t.textSecondary} />
+        {onAttend && <ActionBtn label="Attendance" onPress={onAttend} bg={t.surface2} text={t.textSecondary} />}
+        {onAbsences && <ActionBtn label="Absences" onPress={onAbsences} bg={t.surface2} text={t.textSecondary} />}
         {showPreTest && onPreTest && (
           <ActionBtn label="Pre-Test" onPress={onPreTest} bg={t.primaryLight} text={t.primary} />
         )}
-        <ActionBtn 
-          label={passkeyLoading ? "Setting up..." : "Passkey"} 
-          onPress={onPasskey} 
-          bg={t.surface2} 
-          text={t.textSecondary} 
-        />
+        {onPasskey && (
+          <ActionBtn 
+            label={passkeyLoading ? "Setting up..." : "Passkey"} 
+            onPress={onPasskey} 
+            bg={t.surface2} 
+            text={t.textSecondary} 
+          />
+        )}
       </View>
     </View>
   );

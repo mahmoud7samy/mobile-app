@@ -7,6 +7,7 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import { checkInAttendance, submitQrScan, completeQrAttendance } from '../lib/api';
 import { useThemeStore } from '../lib/themeStore';
 import { Passkey } from 'react-native-passkey';
+import Constants from 'expo-constants';
 
 type Mode = 'choice' | 'code' | 'qr';
 
@@ -44,6 +45,11 @@ export default function AttendanceScreen({ route }: any) {
     try {
       const { data } = await submitQrScan(qrToken, new Date().toISOString(), courseInstanceId);
       if (data?.needWebAuthn) {
+        const ownership = (Constants as any)?.appOwnership;
+        if (ownership === 'expo') {
+          setError('Passkeys require a Development Build or Production build (Expo Go is not supported).');
+          return;
+        }
         // Prompt for Passkey natively
         try {
           const assertionResponse = await Passkey.get(data.options as any);
