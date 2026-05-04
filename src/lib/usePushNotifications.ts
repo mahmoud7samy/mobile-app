@@ -28,6 +28,7 @@ export function usePushNotifications(enabled: boolean) {
     // This prevents the module from even loading in Expo Go.
     const setup = async () => {
       try {
+        console.log('[PushNotifications] Starting setup...');
         const Notifications = await import('expo-notifications');
         const api = (await import('./api')).default;
         const { getAuthToken } = await import('./store');
@@ -46,12 +47,17 @@ export function usePushNotifications(enabled: boolean) {
 
         // Request permission
         const { status: existing } = await Notifications.getPermissionsAsync();
+        console.log('[PushNotifications] Existing permission status:', existing);
         let finalStatus = existing;
         if (existing !== 'granted') {
           const { status } = await Notifications.requestPermissionsAsync();
           finalStatus = status;
+          console.log('[PushNotifications] Requested permission, result:', status);
         }
-        if (finalStatus !== 'granted') return;
+        if (finalStatus !== 'granted') {
+          console.warn('[PushNotifications] Permission not granted. Aborting.');
+          return;
+        }
 
         // Android notification channel (required for background delivery)
         if (Platform.OS === 'android') {
@@ -60,6 +66,7 @@ export function usePushNotifications(enabled: boolean) {
             importance: Notifications.AndroidImportance.MAX,
             vibrationPattern: [0, 250, 250, 250],
           });
+          console.log('[PushNotifications] Android channel created.');
         }
 
         // Get the Expo push token
@@ -68,30 +75,39 @@ export function usePushNotifications(enabled: boolean) {
           const projectId =
             Constants.expoConfig?.extra?.eas?.projectId ??
             Constants.easConfig?.projectId;
+          console.log('[PushNotifications] Using projectId:', projectId);
           const result = projectId
             ? await Notifications.getExpoPushTokenAsync({ projectId })
             : await Notifications.getExpoPushTokenAsync();
           token = result.data;
-        } catch {
+          console.log('[PushNotifications] Got Expo push token:', token);
+        } catch (tokenErr) {
+          console.warn('[PushNotifications] getExpoPushTokenAsync failed:', tokenErr);
           try {
             const deviceToken = await Notifications.getDevicePushTokenAsync();
             token = deviceToken.data as string;
-          } catch {
-            // No token available – give up silently
+            console.log('[PushNotifications] Got device push token:', token);
+          } catch (deviceErr) {
+            console.warn('[PushNotifications] getDevicePushTokenAsync also failed:', deviceErr);
           }
         }
 
-        if (!token) return;
+        if (!token) {
+          console.warn('[PushNotifications] No token — cannot register with backend.');
+          return;
+        }
 
         // Register token with backend
+        console.log('[PushNotifications] Registering token with backend...');
         await api.post(
           '/notifications/expo/register',
           { token },
           { headers: { Authorization: `Bearer ${getAuthToken()}` } },
         );
+        console.log('[PushNotifications] Token registered successfully!');
       } catch (err) {
         // Never crash the app – push is best-effort
-        console.warn('[usePushNotifications] Error during setup:', err);
+        console.warn('[PushNotifications] Error during setup:', err);
       }
     };
 

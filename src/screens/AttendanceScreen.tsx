@@ -8,6 +8,7 @@ import { checkInAttendance, submitQrScan, completeQrAttendance } from '../lib/ap
 import { useThemeStore } from '../lib/themeStore';
 import { Passkey } from 'react-native-passkey';
 import Constants from 'expo-constants';
+import { Ionicons } from '@expo/vector-icons';
 
 type Mode = 'choice' | 'code' | 'qr';
 
@@ -86,7 +87,7 @@ export default function AttendanceScreen({ route }: any) {
         onPress={() => setMode('code')} activeOpacity={0.8}
       >
         <View style={[styles.choiceIcon, { backgroundColor: t.primaryLight }]}>
-          <Text style={styles.choiceEmoji}>🔢</Text>
+          <Ionicons name="keypad" size={32} color={t.primary} />
         </View>
         <Text style={[styles.choiceTitle, { color: t.text }]}>Enter Code</Text>
         <Text style={[styles.choiceDesc, { color: t.textMuted }]}>Teacher shows a 5-digit code on screen</Text>
@@ -97,7 +98,7 @@ export default function AttendanceScreen({ route }: any) {
         onPress={() => setMode('qr')} activeOpacity={0.8}
       >
         <View style={[styles.choiceIcon, { backgroundColor: t.primaryLight }]}>
-          <Text style={styles.choiceEmoji}>📷</Text>
+          <Ionicons name="camera" size={32} color={t.primary} />
         </View>
         <Text style={[styles.choiceTitle, { color: t.text }]}>Scan QR</Text>
         <Text style={[styles.choiceDesc, { color: t.textMuted }]}>Point camera at the QR code displayed by teacher</Text>
@@ -210,7 +211,6 @@ const styles = StyleSheet.create({
     marginBottom: 14, alignItems: 'center',
   },
   choiceIcon: { width: 64, height: 64, borderRadius: 18, alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
-  choiceEmoji: { fontSize: 30 },
   choiceTitle: { fontSize: 18, fontWeight: '800', marginBottom: 4 },
   choiceDesc: { fontSize: 13, textAlign: 'center' },
   codeInput: {

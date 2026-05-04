@@ -7,6 +7,7 @@ import {
 import { useFocusEffect } from '@react-navigation/native';
 import { useAuthStore } from '../lib/store';
 import { useThemeStore } from '../lib/themeStore';
+import { Ionicons } from '@expo/vector-icons';
 import {
   getStudentNotifications, getStudentAnnouncements, getStaffAnnouncements
 } from '../lib/api';
@@ -60,19 +61,21 @@ export default function NotificationsScreen({ navigation }: any) {
   };
 
   const getIcon = (type: string) => {
-    if (type === 'material') return '📄';
-    if (type === 'task') return '📋';
-    if (type === 'seb') return '🔒';
-    if (type === 'transcript') return '🎙️';
-    if (type === 'chat') return '💬';
-    if (type === 'announcement') return '📢';
-    return '🔔';
+    switch (type) {
+      case 'material': return <Ionicons name="document-text" size={24} color={t.primary} />;
+      case 'task': return <Ionicons name="clipboard" size={24} color={t.primary} />;
+      case 'seb': return <Ionicons name="lock-closed" size={24} color={t.primary} />;
+      case 'transcript': return <Ionicons name="mic" size={24} color={t.primary} />;
+      case 'chat': return <Ionicons name="chatbubble" size={24} color={t.primary} />;
+      case 'announcement': return <Ionicons name="megaphone" size={24} color={t.primary} />;
+      default: return <Ionicons name="notifications" size={24} color={t.primary} />;
+    }
   };
 
   const renderItem = ({ item }: { item: any }) => {
     const isAnn = !!item.announcementId;
     const title = item.title;
-    const subtitle = isAnn ? item.body : `${item.actorName} · ${item.subjectName}`;
+    const subtitle = isAnn ? (item.body || item.content) : `${item.actorName} · ${item.subjectName}`;
     const ts = item.createdAt || item.timestamp;
     const dateStr = ts ? new Date(ts).toLocaleString() : '';
     const icon = getIcon(item.type || (isAnn ? 'announcement' : ''));
@@ -80,7 +83,7 @@ export default function NotificationsScreen({ navigation }: any) {
     return (
       <View style={[styles.card, { backgroundColor: t.surface, borderColor: t.border }]}>
         <View style={[styles.iconBox, { backgroundColor: t.surface2 }]}>
-          <Text style={styles.icon}>{icon}</Text>
+          {icon}
         </View>
         <View style={styles.content}>
           <Text style={[styles.title, { color: t.text }]} numberOfLines={2}>{title}</Text>

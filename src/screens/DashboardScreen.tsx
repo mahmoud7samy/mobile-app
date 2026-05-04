@@ -225,19 +225,11 @@ export default function DashboardScreen({ navigation }: any) {
             style={[styles.bellBtn, { backgroundColor: t.surface2 }]}
             onPress={() => navigation.navigate('Notifications')}
           >
-            <Text style={{ fontSize: 18 }}>🔔</Text>
+            <Ionicons name="notifications-outline" size={20} color={t.text} />
             {unreadNotifications && <View style={styles.redDot} />}
           </TouchableOpacity>
-          {(user?.role === 'teacher' || user?.role === 'admin' || true) && (
-            <TouchableOpacity
-              onPress={checkAiReadiness}
-              style={[styles.themeBtn, { backgroundColor: t.surface2, marginRight: 8 }]}
-            >
-              <Text style={{ fontSize: 16 }}>🛠️</Text>
-            </TouchableOpacity>
-          )}
           <TouchableOpacity onPress={toggle} style={[styles.themeBtn, { backgroundColor: t.surface2 }]}>
-            <Text style={{ fontSize: 16 }}>{isDark ? '☀️' : '🌙'}</Text>
+            <Ionicons name={isDark ? "sunny-outline" : "moon-outline"} size={20} color={t.text} />
           </TouchableOpacity>
         </View>
       </View>
@@ -246,7 +238,7 @@ export default function DashboardScreen({ navigation }: any) {
       <View style={[styles.hero, { ...t.shadowStrong }]}>
         <View style={styles.heroLeft}>
           <View style={styles.avatarCircle}>
-            <Text style={styles.avatarText}>{initials || '👤'}</Text>
+            {initials ? <Text style={styles.avatarText}>{initials}</Text> : <Ionicons name="person" size={24} color="#fff" />}
           </View>
           <View>
             <Text style={styles.heroGreeting}>Good day,</Text>
@@ -260,7 +252,10 @@ export default function DashboardScreen({ navigation }: any) {
           style={styles.chatBadge}
           onPress={() => navigation.navigate('ChatList')}
         >
-          <Text style={styles.chatBadgeText}>💬 Chats</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <Ionicons name="chatbubbles-outline" size={14} color="#fff" style={{ marginRight: 4 }} />
+            <Text style={styles.chatBadgeText}>Chats</Text>
+          </View>
           {unreadChats && <View style={styles.chatRedDot} />}
         </TouchableOpacity>
       </View>
@@ -269,11 +264,11 @@ export default function DashboardScreen({ navigation }: any) {
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.statsRow} contentContainerStyle={styles.statsContent}>
         {isStudent ? (
           <>
-            <StatPill icon="🏆" label={stats.rank != null ? `#${stats.rank} Rank` : '— Rank'} color="#F59E0B" bg={t.surface} border={t.border} text={t.text} />
-            <StatPill icon="⭐" label={`${(stats.averageScore ?? 0).toFixed(1)}% Avg`} color="#3B82F6" bg={t.surface} border={t.border} text={t.text} />
-            <StatPill icon="✍️" label={`${stats.completedQuizzes ?? 0} Quizzes Taken`} color="#8B5CF6" bg={t.surface} border={t.border} text={t.text} />
-            <StatPill icon="📚" label={`${courses.length} Courses`} color="#10B981" bg={t.surface} border={t.border} text={t.text} />
-            <StatPill icon="📍" label={`${(stats.overallAttendance ?? 0).toFixed(0)}% Attend`} color="#EC4899" bg={t.surface} border={t.border} text={t.text} />
+            <StatPill icon={<Ionicons name="trophy-outline" size={16} color="#F59E0B" />} label={stats.rank != null ? `#${stats.rank} Rank` : '— Rank'} color="#F59E0B" bg={t.surface} border={t.border} text={t.text} />
+            <StatPill icon={<Ionicons name="star-outline" size={16} color="#3B82F6" />} label={`${(stats.averageScore ?? 0).toFixed(1)}% Avg`} color="#3B82F6" bg={t.surface} border={t.border} text={t.text} />
+            <StatPill icon={<Ionicons name="pencil-outline" size={16} color="#8B5CF6" />} label={`${stats.completedQuizzes ?? 0} Quizzes`} color="#8B5CF6" bg={t.surface} border={t.border} text={t.text} />
+            <StatPill icon={<Ionicons name="book-outline" size={16} color="#10B981" />} label={`${courses.length} Courses`} color="#10B981" bg={t.surface} border={t.border} text={t.text} />
+            <StatPill icon={<Ionicons name="location-outline" size={16} color="#EC4899" />} label={`${(stats.overallAttendance ?? 0).toFixed(0)}% Attend`} color="#EC4899" bg={t.surface} border={t.border} text={t.text} />
           </>
         ) : (
           <>
@@ -539,7 +534,7 @@ function CourseCard({ course, theme: t, onGroupChat, onTasks, onMaterials, onAtt
         <ActionBtn label="Transcripts" onPress={onTranscripts} bg={t.surface2} text={t.textSecondary} />
         {onAnnounce && <ActionBtn label="Announce" onPress={onAnnounce} bg={t.primaryLight} text={t.primary} />}
         {onAttend && <ActionBtn label="Attendance" onPress={onAttend} bg={t.surface2} text={t.textSecondary} />}
-        {onAbsences && <ActionBtn label="Absences" onPress={onAbsences} bg={t.surface2} text={t.textSecondary} />}
+        {onAbsences && <ActionBtn label="Reasons for Absence" onPress={onAbsences} bg={t.surface2} text={t.textSecondary} />}
         {onGrades && <ActionBtn label="Grades" onPress={onGrades} bg={t.surface2} text={t.textSecondary} />}
         {onCheating && <ActionBtn label="Cheating Flags" onPress={onCheating} bg={'rgba(239, 68, 68, 0.15)'} text={'#EF4444'} />}
         {showPreTest && onPreTest && (

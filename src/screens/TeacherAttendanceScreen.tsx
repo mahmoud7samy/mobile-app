@@ -33,21 +33,27 @@ export default function TeacherAttendanceScreen({ route }: any) {
         return <Text style={[styles.loading, { color: t.textMuted }]}>Failed to load report.</Text>;
     }
 
+    const totalSessions = report.sessions?.length || 0;
+    const totalStudents = report.students?.length || 0;
+    const avgAttend = totalStudents > 0
+        ? (report.students.reduce((acc: any, s: any) => acc + (s.percentage || 0), 0) / totalStudents).toFixed(1)
+        : 0;
+
     return (
         <ScrollView style={[styles.container, { backgroundColor: t.bg }]} contentContainerStyle={styles.content}>
             <Text style={[styles.title, { color: t.text }]}>{subjectName} - Attendance Report</Text>
 
             <View style={[styles.overviewCard, { backgroundColor: t.surface, borderColor: t.border }]}>
                 <View style={styles.overviewCol}>
-                    <Text style={[styles.overviewNum, { color: t.primary }]}>{report.totalSessions}</Text>
+                    <Text style={[styles.overviewNum, { color: t.primary }]}>{totalSessions}</Text>
                     <Text style={[styles.overviewLabel, { color: t.textSecondary }]}>Sessions</Text>
                 </View>
                 <View style={styles.overviewCol}>
-                    <Text style={[styles.overviewNum, { color: t.success }]}>{report.averageAttendance}%</Text>
+                    <Text style={[styles.overviewNum, { color: t.success }]}>{avgAttend}%</Text>
                     <Text style={[styles.overviewLabel, { color: t.textSecondary }]}>Avg Attend</Text>
                 </View>
                 <View style={styles.overviewCol}>
-                    <Text style={[styles.overviewNum, { color: t.text }]}>{report.totalStudents}</Text>
+                    <Text style={[styles.overviewNum, { color: t.text }]}>{totalStudents}</Text>
                     <Text style={[styles.overviewLabel, { color: t.textSecondary }]}>Students</Text>
                 </View>
             </View>
@@ -57,9 +63,9 @@ export default function TeacherAttendanceScreen({ route }: any) {
             <View style={[styles.table, { backgroundColor: t.surface, borderColor: t.border }]}>
                 {report.students.map((student: any, idx: number) => {
                     const color =
-                        student.attendancePercentage >= 75
+                        student.percentage >= 75
                             ? t.success
-                            : student.attendancePercentage >= 50
+                            : student.percentage >= 50
                                 ? '#F59E0B'
                                 : t.danger;
 
@@ -70,8 +76,8 @@ export default function TeacherAttendanceScreen({ route }: any) {
                                 <Text style={{ color: t.textSecondary, fontSize: 12 }}>{student.studentCode}</Text>
                             </View>
                             <View style={{ alignItems: 'flex-end' }}>
-                                <Text style={{ color: color, fontWeight: 'bold' }}>{student.attendancePercentage}%</Text>
-                                <Text style={{ color: t.textMuted, fontSize: 11 }}>{student.attendedSessions} / {report.totalSessions}</Text>
+                                <Text style={{ color: color, fontWeight: 'bold' }}>{student.percentage.toFixed(0)}%</Text>
+                                <Text style={{ color: t.textMuted, fontSize: 11 }}>{student.attended} / {totalSessions}</Text>
                             </View>
                         </View>
                     );

@@ -35,6 +35,7 @@ export default function PrerequisiteTestScreen({ route, navigation }: any) {
   const [flow, setFlow] = useState<FlowState>('select');
   const [questions, setQuestions] = useState<Question[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [questionCount, setQuestionCount] = useState<number>(5);
   // Store selected option ID (e.g. "a", "b"), matching web frontend behavior
   const [answers, setAnswers] = useState<(string | null)[]>([]);
   const [selectedMaterial, setSelectedMaterial] = useState<{ materialId: string; fileName: string } | null>(null);
@@ -44,7 +45,7 @@ export default function PrerequisiteTestScreen({ route, navigation }: any) {
     setSelectedMaterial(material);
     setFlow('loading');
     try {
-      const { data } = await generatePrerequisiteQuiz(material.materialId, 5);
+      const { data } = await generatePrerequisiteQuiz(material.materialId, questionCount);
       const rawQuestions = data.questions ?? data ?? [];
       if (!rawQuestions || rawQuestions.length === 0) {
         Alert.alert('Not Ready', 'Could not generate questions for this material. Please try another.');
@@ -151,6 +152,23 @@ export default function PrerequisiteTestScreen({ route, navigation }: any) {
         <Text style={[styles.subtitle, { color: t.textMuted }]}>
           Select a course material to test your foundational knowledge before studying.
         </Text>
+
+        <View style={styles.questionCountSection}>
+          <Text style={[styles.questionCountLabel, { color: t.text }]}>Number of Questions:</Text>
+          <View style={styles.questionCountOptions}>
+            {[5, 10, 15, 20].map((count) => (
+              <TouchableOpacity
+                key={count}
+                style={[styles.countOption, questionCount === count ? { backgroundColor: t.primary, borderColor: t.primary } : { backgroundColor: t.surface, borderColor: t.border }]}
+                onPress={() => setQuestionCount(count)}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.countOptionText, questionCount === count ? { color: '#fff' } : { color: t.text }]}>{count}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+
         {materials.length === 0 ? (
           <View style={styles.emptyBox}>
             <Text style={[styles.emptyText, { color: t.textMuted }]}>
@@ -296,8 +314,13 @@ const styles = StyleSheet.create({
   content: { padding: 16, paddingBottom: 40 },
   title: { fontSize: 24, fontWeight: '800', marginBottom: 6 },
   subtitle: { fontSize: 14, lineHeight: 20, marginBottom: 24 },
-  emptyBox: { alignItems: 'center', paddingTop: 60 },
+  emptyBox: { alignItems: 'center', paddingTop: 40 },
   emptyText: { fontSize: 14, textAlign: 'center' },
+  questionCountSection: { marginBottom: 24, paddingHorizontal: 4 },
+  questionCountLabel: { fontSize: 15, fontWeight: '700', marginBottom: 12 },
+  questionCountOptions: { flexDirection: 'row', gap: 10 },
+  countOption: { flex: 1, paddingVertical: 10, borderRadius: 12, borderWidth: 1, alignItems: 'center' },
+  countOptionText: { fontSize: 15, fontWeight: '700' },
   materialCard: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
     borderRadius: 16, borderWidth: 1, padding: 16, marginBottom: 12,
