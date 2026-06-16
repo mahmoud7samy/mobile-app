@@ -9,8 +9,12 @@ import { useAuthStore } from '../lib/store';
 import { useThemeStore } from '../lib/themeStore';
 import { Ionicons } from '@expo/vector-icons';
 import {
-  getStudentNotifications, getStudentAnnouncements, getStaffAnnouncements
+  getStudentNotifications, getStudentAnnouncements, getStaffAnnouncements,
+  downloadAnnouncementAttachment
 } from '../lib/api';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
+import { Alert } from 'react-native';
 
 export default function NotificationsScreen({ navigation }: any) {
   const user = useAuthStore((s) => s.user);
@@ -60,6 +64,39 @@ export default function NotificationsScreen({ navigation }: any) {
     loadData();
   };
 
+  const handleDownloadAttachment = async (attachmentId: string, fileName: string) => {
+    try {
+      const response = await downloadAnnouncementAttachment(attachmentId);
+      
+      const fileUri = FileSystem.documentDirectory + fileName.replace(/[^a-zA-Z0-9.-]/g, '_');
+      
+      // We get a blob back from the API call, but react-native fetch with blob is tricky.
+      // Alternatively, we could just use FileSystem.downloadAsync, but our API uses token auth.
+      // Let's use FileSystem.downloadAsync with the token.
+      const token = useAuthStore.getState().token;
+      const downloadRes = await FileSystem.downloadAsync(
+        `${useAuthStore.getState()._hydrated ? 'https://ai-powered-college-platform-production.up.railway.app' : ''}/api/announcements/attachments/${attachmentId}/download`,
+        fileUri,
+        {
+          headers: { Authorization: `Bearer ${token}` }
+        }
+      );
+      
+      if (downloadRes.status !== 200) {
+        throw new Error('Failed to download');
+      }
+
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(downloadRes.uri);
+      } else {
+        Alert.alert('Downloaded', `File saved to ${downloadRes.uri}`);
+      }
+    } catch (err) {
+      console.error(err);
+      Alert.alert('Error', 'Failed to download attachment.');
+    }
+  };
+
   const getIcon = (type: string) => {
     switch (type) {
       case 'material': return <Ionicons name="document-text" size={24} color={t.primary} />;
@@ -75,7 +112,8 @@ export default function NotificationsScreen({ navigation }: any) {
   const renderItem = ({ item }: { item: any }) => {
     const isAnn = !!item.announcementId;
     const title = item.title;
-    const subtitle = isAnn ? (item.body || item.content) : `${item.actorName} · ${item.subjectName}`;
+    const content = item.body || item.content;
+    const subtitle = isAnn ? `${item.subjectName || item.levelName || 'Announcement'} • ${item.authorName || item.actorName || ''}` : `${item.actorName || ''} · ${item.subjectName || ''}`;
     const ts = item.createdAt || item.timestamp;
     const dateStr = ts ? new Date(ts).toLocaleString() : '';
     const icon = getIcon(item.type || (isAnn ? 'announcement' : ''));
@@ -86,9 +124,33 @@ export default function NotificationsScreen({ navigation }: any) {
           {icon}
         </View>
         <View style={styles.content}>
-          <Text style={[styles.title, { color: t.text }]} numberOfLines={2}>{title}</Text>
-          <Text style={[styles.subtitle, { color: t.textSecondary }]} numberOfLines={2}>{subtitle}</Text>
+          {isAnn ? (
+            <Text style={[styles.title, { color: t.text }]} numberOfLines={4}>{content}</Text>
+          ) : (
+            <>
+              <Text style={[styles.title, { color: t.text }]} numberOfLines={2}>{title}</Text>
+              <Text style={[styles.subtitle, { color: t.textSecondary }]} numberOfLines={2}>{subtitle}</Text>
+            </>
+          )}
+          {isAnn && (
+            <Text style={[styles.subtitle, { color: t.textSecondary, marginTop: 4 }]} numberOfLines={1}>{subtitle}</Text>
+          )}
           <Text style={[styles.time, { color: t.textMuted }]}>{dateStr}</Text>
+
+          {isAnn && item.attachments && item.attachments.length > 0 && (
+            <View style={styles.attachmentsWrap}>
+              {item.attachments.map((att: any) => (
+                <TouchableOpacity
+                  key={att.attachmentId}
+                  style={[styles.attachmentBtn, { backgroundColor: t.primaryLight }]}
+                  onPress={() => handleDownloadAttachment(att.attachmentId, att.fileName)}
+                >
+                  <Ionicons name="attach" size={14} color={t.primary} />
+                  <Text style={[styles.attachmentText, { color: t.primary }]} numberOfLines={1}>{att.fileName}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
         </View>
       </View>
     );
@@ -169,6 +231,25 @@ const styles = StyleSheet.create({
   title: { fontSize: 15, fontWeight: '700', marginBottom: 4 },
   subtitle: { fontSize: 14, marginBottom: 8 },
   time: { fontSize: 12 },
+  attachmentsWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginTop: 8,
+    gap: 6,
+  },
+  attachmentBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  attachmentText: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginLeft: 4,
+    maxWidth: 150,
+  },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   empty: { padding: 32, alignItems: 'center' },
   emptyText: { fontSize: 14 },

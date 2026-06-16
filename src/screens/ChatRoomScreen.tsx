@@ -12,50 +12,6 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import { API_BASE_URL } from '../lib/api';
 import { Ionicons } from '@expo/vector-icons';
-import { Audio } from 'expo-av';
-
-function VoiceMessagePlayer({ uri, isMe, t, token }: { uri: string, isMe: boolean, t: any, token: string | null }) {
-  const [sound, setSound] = useState<Audio.Sound | null>(null);
-  const [isPlaying, setIsPlaying] = useState(false);
-
-  async function playSound() {
-    if (isPlaying && sound) {
-      await sound.pauseAsync();
-      setIsPlaying(false);
-      return;
-    }
-    if (sound) {
-      await sound.playAsync();
-      setIsPlaying(true);
-      return;
-    }
-    const { sound: newSound } = await Audio.Sound.createAsync(
-      { uri, headers: token ? { Authorization: `Bearer ${token}` } : undefined },
-      { shouldPlay: true }
-    );
-    newSound.setOnPlaybackStatusUpdate((status: any) => {
-      if (status.isLoaded && status.didJustFinish) {
-        setIsPlaying(false);
-        newSound.setPositionAsync(0);
-      }
-    });
-    setSound(newSound);
-    setIsPlaying(true);
-  }
-
-  useEffect(() => {
-    return sound ? () => { sound.unloadAsync(); } : undefined;
-  }, [sound]);
-
-  return (
-    <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: isMe ? 'rgba(255,255,255,0.2)' : t.surface2, padding: 10, borderRadius: 16, minWidth: 150, marginTop: 4 }} onPress={playSound}>
-      <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: isMe ? '#fff' : t.primary, alignItems: 'center', justifyContent: 'center' }}>
-        <Ionicons name={isPlaying ? "pause" : "play"} size={16} color={isMe ? t.primary : '#fff'} />
-      </View>
-      <Text style={{ color: isMe ? '#fff' : t.text, marginLeft: 10, flex: 1, fontSize: 13, fontWeight: '700' }}>{isPlaying ? "Playing..." : "Voice Message"}</Text>
-    </TouchableOpacity>
-  );
-}
 
 function getMimeType(fileName: string): string {
   const ext = fileName.includes('.') ? fileName.slice(fileName.lastIndexOf('.')).toLowerCase() : '';
@@ -81,76 +37,8 @@ export default function ChatRoomScreen({ route }: any) {
   const [pollQuestion, setPollQuestion] = useState('');
   const [pollOptions, setPollOptions] = useState(['', '']);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
-  const [recording, setRecording] = useState<Audio.Recording | null>(null);
-  const [isRecording, setIsRecording] = useState(false);
   const listRef = useRef<FlatList>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  const startRecording = async () => {
-    try {
-      const perms = await Audio.requestPermissionsAsync();
-      if (perms.status !== 'granted') {
-        Alert.alert('Permission Denied', 'Microphone recording permission is required to send voice messages.');
-        return;
-      }
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
-      });
-
-      const { recording } = await Audio.Recording.createAsync(
-        Audio.RecordingOptionsPresets.HIGH_QUALITY
-      );
-      setRecording(recording);
-      setIsRecording(true);
-    } catch (err) {
-      console.error('Failed to start recording', err);
-      Alert.alert('Error', 'Failed to start recording');
-    }
-  };
-
-  const stopRecording = async (cancel = false) => {
-    if (!recording) return;
-    try {
-      await recording.stopAndUnloadAsync();
-      setIsRecording(false);
-      const uri = recording.getURI();
-      setRecording(null);
-
-      if (cancel || !uri) return;
-
-      const token = useAuthStore.getState().token;
-      const formData = new FormData();
-      formData.append('files', {
-        uri: uri,
-        name: 'voice_message.m4a',
-        type: 'audio/m4a',
-      } as any);
-
-      setSending(true);
-      const response = await fetch(
-        `${API_BASE_URL.replace(/\/$/, '')}/api/chat/rooms/${courseInstanceId}/messages/attachments`,
-        {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${token}` },
-          body: formData,
-        }
-      );
-
-      if (!response.ok) {
-        throw new Error(`Server error ${response.status}`);
-      }
-      const data = await response.json();
-      setMessages((prev: ChatMessage[]) => [...prev, data]);
-      setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 100);
-
-    } catch (err: any) {
-      console.error('Recording stop failed', err);
-      Alert.alert('Error', err.message || 'Could not send voice message');
-    } finally {
-      setSending(false);
-    }
-  };
 
   const loadMessages = async () => {
     if (!courseInstanceId) return;
@@ -350,8 +238,8 @@ export default function ChatRoomScreen({ route }: any) {
   return (
     <KeyboardAvoidingView
       style={[styles.container, { backgroundColor: t.bg }]}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 80}
     >
       <FlatList
         ref={listRef}
@@ -381,11 +269,6 @@ export default function ChatRoomScreen({ route }: any) {
 
                 {item.messageType === 'attachment' && item.attachments?.map((a: { attachmentId: string, fileName: string, fileSize: number }) => {
                   const ext = a.fileName.includes('.') ? a.fileName.slice(a.fileName.lastIndexOf('.')).toLowerCase() : '';
-                  if (ext === '.m4a' || a.fileName === 'voice_message.m4a') {
-                    const token = useAuthStore.getState().token;
-                    const url = `${API_BASE_URL.replace(/\/$/, '')}/api/chat/attachments/${a.attachmentId}/download`;
-                    return <VoiceMessagePlayer key={a.attachmentId} uri={url} isMe={mine} t={t} token={token} />;
-                  }
 
                   const isDownloading = downloadingId === a.attachmentId;
                   const fileIcon: Record<string, string> = {
@@ -482,33 +365,22 @@ export default function ChatRoomScreen({ route }: any) {
 
         <TextInput
           style={[styles.input, { backgroundColor: t.surface2, color: t.text, borderColor: t.border }]}
-          placeholder={isRecording ? "Recording... (Hold cancel button)" : "Message..."}
-          placeholderTextColor={isRecording ? t.danger : t.textMuted}
+          placeholder="Message..."
+          placeholderTextColor={t.textMuted}
           value={input}
           onChangeText={setInput}
           multiline
           maxLength={4000}
-          editable={!sending && !isRecording}
+          editable={!sending}
           onSubmitEditing={send}
         />
-        {input.trim() ? (
-          <TouchableOpacity
-            style={[styles.sendBtn, { backgroundColor: t.primary, opacity: sending ? 0.5 : 1 }]}
-            onPress={send}
-            disabled={sending}
-          >
-            <Ionicons name="send" size={16} color="#fff" style={{ marginLeft: 2 }} />
-          </TouchableOpacity>
-        ) : (
-          <TouchableOpacity
-            style={[styles.sendBtn, { backgroundColor: isRecording ? t.danger : t.primary, opacity: sending ? 0.5 : 1 }]}
-            onPress={isRecording ? () => stopRecording(false) : startRecording}
-            onLongPress={isRecording ? () => stopRecording(true) : undefined}
-            disabled={sending}
-          >
-            <Ionicons name={isRecording ? "stop" : "mic"} size={20} color="#fff" />
-          </TouchableOpacity>
-        )}
+        <TouchableOpacity
+          style={[styles.sendBtn, { backgroundColor: t.primary, opacity: (!input.trim() || sending) ? 0.5 : 1 }]}
+          onPress={send}
+          disabled={!input.trim() || sending}
+        >
+          <Ionicons name="send" size={16} color="#fff" style={{ marginLeft: 2 }} />
+        </TouchableOpacity>
       </View>
 
       <Modal

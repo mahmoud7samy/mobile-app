@@ -17,7 +17,7 @@ interface AuthState {
   user: User | null;
   lastViewedNotifications: string | null;
   _hydrated: boolean;
-  setAuth: (token: string, user: User) => Promise<void>;
+  setAuth: (token: string, user: User, rememberMe?: boolean) => Promise<void>;
   clearAuth: () => Promise<void>;
   rehydrate: () => Promise<void>;
   updateLastViewedNotifications: (isoDate: string) => Promise<void>;
@@ -28,10 +28,18 @@ export const useAuthStore = create<AuthState>((set) => ({
   user: null,
   lastViewedNotifications: null,
   _hydrated: false,
-  setAuth: async (token, user) => {
-    await AsyncStorage.setItem(TOKEN_KEY, token);
-    await AsyncStorage.setItem(AUTH_KEY, JSON.stringify({ token, user }));
+  setAuth: async (token, user, rememberMe = true) => {
     set({ token, user });
+    if (rememberMe) {
+      await AsyncStorage.setItem(TOKEN_KEY, token);
+      await AsyncStorage.setItem(AUTH_KEY, JSON.stringify({ 
+        token, 
+        user,
+        expiresAt: Date.now() + 30 * 24 * 60 * 60 * 1000 // 30 days
+      }));
+    } else {
+      await AsyncStorage.multiRemove([TOKEN_KEY, AUTH_KEY]);
+    }
   },
   clearAuth: async () => {
     set({ token: null, user: null, lastViewedNotifications: null });
@@ -45,10 +53,15 @@ export const useAuthStore = create<AuthState>((set) => ({
     try {
       const raw = await AsyncStorage.getItem(AUTH_KEY);
       if (raw) {
-        const data = JSON.parse(raw) as { token?: string; user?: User };
+        const data = JSON.parse(raw) as { token?: string; user?: User; expiresAt?: number };
         if (data.token && data.user) {
-          await AsyncStorage.setItem(TOKEN_KEY, data.token);
-          set({ token: data.token, user: data.user });
+          if (!data.expiresAt || data.expiresAt > Date.now()) {
+            await AsyncStorage.setItem(TOKEN_KEY, data.token);
+            set({ token: data.token, user: data.user });
+          } else {
+            // Expired
+            await AsyncStorage.multiRemove([TOKEN_KEY, AUTH_KEY]);
+          }
         }
       }
       const lastViewed = await AsyncStorage.getItem('lastViewedNotifications');

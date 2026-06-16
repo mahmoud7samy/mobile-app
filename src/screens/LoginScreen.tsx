@@ -15,6 +15,7 @@ export default function LoginScreen() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPass, setShowPass] = useState(false);
+  const [rememberMe, setRememberMe] = useState(true);
   const setAuth = useAuthStore((s) => s.setAuth);
   const { theme } = useThemeStore();
 
@@ -27,7 +28,7 @@ export default function LoginScreen() {
     setLoading(true);
     try {
       const { data } = await login(username.trim(), password);
-      await setAuth(data.accessToken, data.user);
+      await setAuth(data.accessToken, data.user, rememberMe);
     } catch (err: any) {
       const msg = err.response?.data?.message;
       const networkMsg = err.message === 'Network Error'
@@ -101,6 +102,20 @@ export default function LoginScreen() {
           </TouchableOpacity>
         </View>
 
+        {/* Remember Me Checkbox */}
+        <TouchableOpacity 
+          style={styles.rememberRow} 
+          onPress={() => setRememberMe(!rememberMe)}
+          activeOpacity={0.7}
+        >
+          <Ionicons 
+            name={rememberMe ? 'checkbox' : 'square-outline'} 
+            size={20} 
+            color={rememberMe ? t.primary : t.textMuted} 
+          />
+          <Text style={[styles.rememberText, { color: t.text }]}>Remember me for 30 days</Text>
+        </TouchableOpacity>
+
         {/* Button */}
         <TouchableOpacity
           style={[styles.button, loading && styles.buttonDisabled]}
@@ -149,6 +164,17 @@ const styles = StyleSheet.create({
     height: 52, alignItems: 'center', justifyContent: 'center', marginTop: 8,
   },
   buttonDisabled: { opacity: 0.7 },
-  buttonText: { color: '#fff', fontSize: 17, fontWeight: '700', letterSpacing: 0.3 },
-  secureNote: { fontSize: 12, textAlign: 'center', marginTop: 16 },
+  buttonText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  secureNote: { textAlign: 'center', marginTop: 16, fontSize: 12, fontWeight: '500' },
+  rememberRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+    paddingVertical: 4,
+  },
+  rememberText: {
+    marginLeft: 8,
+    fontSize: 14,
+    fontWeight: '500',
+  },
 });

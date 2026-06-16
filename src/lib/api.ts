@@ -250,6 +250,31 @@ export const submitQrScan = (token: string, scannedAt: string, courseInstanceId:
 export const completeQrAttendance = (attemptId: string, courseInstanceId: string, assertionResponse: any) =>
   api.post<{ message: string; points: number }>('/attendance/qr/complete', { attemptId, courseInstanceId, assertionResponse });
 
+// Teacher Attendance
+export const startAttendanceSession = (courseInstanceId: string, durationMinutes: number) =>
+  api.post<{ sessionId: string; sessionCode: string }>('/attendance/start', { courseInstanceId, durationMinutes });
+
+export const getActiveAttendanceSession = (courseInstanceId: string) =>
+  api.get<any>(`/attendance/session/${courseInstanceId}`);
+
+export const confirmAttendanceRecord = (sessionId: string, studentId: string, status: 'present' | 'absent') =>
+  api.post<{ message: string }>(`/attendance/session/${sessionId}/confirm-record`, { studentId, status });
+
+export const confirmAllAttendance = (sessionId: string) =>
+  api.post<{ message: string }>(`/attendance/session/${sessionId}/confirm-all`);
+
+export const startQrAttendanceSession = (courseInstanceId: string) =>
+  api.post<{ qrSessionId: string }>('/attendance/qr/start', { courseInstanceId });
+
+export const getQrToken = (qrSessionId: string) =>
+  api.get<{ token: string; validTo: string }>(`/attendance/qr/token/${qrSessionId}`);
+
+export const getActiveQrSession = (qrSessionId: string) =>
+  api.get<any>(`/attendance/qr/session/${qrSessionId}`);
+
+export const confirmAllQrAttendance = (qrSessionId: string) =>
+  api.post<{ message: string }>(`/attendance/qr/session/${qrSessionId}/confirm-all`);
+
 // Absence Reasons
 export const getSessionsForAbsenceReasons = (courseInstanceId: string) =>
   api.get<any[]>(`/attendance/sessions/${courseInstanceId}/absence-reasons`);
@@ -292,6 +317,10 @@ export const getStudentAnnouncements = () =>
 export const getStaffAnnouncements = () =>
   api.get<any[]>('/announcements/staff');
 
+export const getAdminAnnouncements = () => api.get<any[]>('/announcements/admin');
+export const downloadAnnouncementAttachment = (attachmentId: string) =>
+  api.get(`/announcements/attachments/${attachmentId}/download`, { responseType: 'blob' });
+
 export const createCourseAnnouncement = (formData: FormData) =>
   api.post<{ message: string }>('/announcements/course', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
@@ -318,12 +347,39 @@ export const getCourseTranscripts = (courseInstanceId: string) =>
 export const getTranscriptDetail = (transcriptId: string) =>
   api.get<any>(`/transcripts/${transcriptId}`);
 
+// ——— Requirements ———
+export const getCourseRequirementsMeta = (courseInstanceId: string) =>
+  api.get<any>(`/course-requirements/staff/${courseInstanceId}/meta`);
+
+export const downloadCourseRequirements = (courseInstanceId: string) =>
+  api.get(`/course-requirements/staff/${courseInstanceId}/download`, { responseType: 'blob' });
+
 // ——— Quiz / Grades ———
 export const getCourseViolations = (courseInstanceId: string) =>
   api.get<any[]>(`/quiz/course/${courseInstanceId}/violations`);
 
 export const getCourseGrades = (courseInstanceId: string) =>
   api.get<any[]>(`/quiz/course/${courseInstanceId}/grades`);
+
+export const getStudentMyGrades = (courseInstanceId: string) =>
+  api.get<any[]>(`/quiz/student/course/${courseInstanceId}/my-grades`);
+
+export const getScheduledQuizzesForStudent = (courseInstanceId: string) =>
+  api.get<any[]>(`/quiz/student/course/${courseInstanceId}/scheduled`);
+
+export const getQuiz = (quizId: string) => api.get<any>(`/quiz/${quizId}`);
+
+export const startQuiz = (quizId: string) => api.post<any>(`/quiz/${quizId}/start`);
+
+export const getExamAttempt = (attemptId: string) => api.get<any>(`/exam/attempt/${attemptId}`);
+
+export const upsertQuizAnswer = (
+  attemptId: string,
+  body: { questionId: string; selectedOption?: string; answerText?: string },
+) => api.put<any>(`/exam/attempt/${attemptId}/answers`, body);
+
+export const submitQuiz = (attemptId: string, answers: any[]) =>
+  api.post<any>(`/quiz/attempts/${attemptId}/submit`, { answers });
 
 // ——— Prerequisite Test ———
 export const generatePrerequisiteQuiz = (materialId: string, numberOfQuestions = 5) =>
@@ -343,5 +399,12 @@ export const analyzeWeakTopics = (incorrectAnswers: { question: string; studentA
 
 export const getAiStatus = () =>
   api.get<{ openai: boolean; qdrant: boolean; timestamp: string; qdrantError?: string }>('/ai/status');
+
+// ——— Course Feedback ———
+export const submitCourseFeedback = (courseInstanceId: string, message: string) =>
+  api.post<{ message: string }>(`/course-feedback/submit/${courseInstanceId}`, { message });
+
+export const getCourseFeedback = (courseInstanceId: string) =>
+  api.get<any[]>(`/course-feedback/course/${courseInstanceId}`);
 
 export default api;

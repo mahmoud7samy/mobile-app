@@ -21,6 +21,14 @@ import TeacherGradesScreen from './src/screens/TeacherGradesScreen';
 import CheatingReportsScreen from './src/screens/CheatingReportsScreen';
 
 import NotificationsScreen from './src/screens/NotificationsScreen';
+import WelcomeScreen from './src/screens/WelcomeScreen';
+import SubmitFeedbackScreen from './src/screens/SubmitFeedbackScreen';
+import TeacherFeedbackScreen from './src/screens/TeacherFeedbackScreen';
+import StudentGradesScreen from './src/screens/StudentGradesScreen';
+import TeacherRequirementsScreen from './src/screens/TeacherRequirementsScreen';
+import ActiveAttendanceScreen from './src/screens/ActiveAttendanceScreen';
+import ActiveQrAttendanceScreen from './src/screens/ActiveQrAttendanceScreen';
+import ExamScreen from './src/screens/ExamScreen';
 import { useAuthStore } from './src/lib/store';
 import HeaderLogoutButton from './src/components/HeaderLogoutButton';
 import { useThemeStore } from './src/lib/themeStore';
@@ -31,6 +39,8 @@ const Stack = createNativeStackNavigator();
 export default function App() {
   const { token, _hydrated, rehydrate } = useAuthStore();
   const { theme: t, init: initTheme } = useThemeStore();
+  const [showWelcome, setShowWelcome] = React.useState(true);
+
   // Register device for push notifications when the user is logged in.
   // All failures are silently swallowed – this never breaks the app.
   usePushNotifications(!!token);
@@ -47,6 +57,7 @@ export default function App() {
   return (
     <NavigationContainer>
       <Stack.Navigator
+        initialRouteName="Welcome"
         screenOptions={{
           headerShown: true,
           headerRight: () => <HeaderLogoutButton />,
@@ -58,6 +69,11 @@ export default function App() {
       >
         {token ? (
           <>
+            <Stack.Screen
+              name="Welcome"
+              component={WelcomeScreen}
+              options={{ headerShown: false }}
+            />
             <Stack.Screen
               name="Dashboard"
               component={DashboardScreen}
@@ -164,18 +180,65 @@ export default function App() {
               options={{ title: 'Cheating Flags' }}
             />
             <Stack.Screen
+              name="SubmitFeedback"
+              component={SubmitFeedbackScreen}
+              options={{ title: 'Submit Feedback' }}
+            />
+            <Stack.Screen
+              name="StudentGrades"
+              component={StudentGradesScreen}
+              options={{ title: 'My Grades' }}
+            />
+            <Stack.Screen
               name="Notifications"
               component={NotificationsScreen}
               options={{ title: 'Notifications' }}
             />
+            <Stack.Screen
+              name="Exam"
+              component={ExamScreen}
+              options={({ route }: any) => ({
+                title: route.params?.subjectName
+                  ? `Exam – ${route.params.subjectName}`
+                  : 'Exam',
+                headerBackVisible: false,
+              })}
+            />
           </>
         ) : (
-          <Stack.Screen
-            name="Login"
-            component={LoginScreen}
-            options={{ headerShown: false }}
-          />
+          <>
+            <Stack.Screen
+              name="Welcome"
+              component={WelcomeScreen}
+              options={{ headerShown: false }}
+            />
+            <Stack.Screen
+              name="Login"
+              component={LoginScreen}
+              options={{ headerShown: false }}
+            />
+          </>
         )}
+        <Stack.Screen
+          name="TeacherRequirements"
+          component={TeacherRequirementsScreen}
+          options={{ title: 'Course Requirements' }}
+        />
+        <Stack.Screen
+          name="ActiveAttendance"
+          component={ActiveAttendanceScreen}
+          options={{ title: 'Live Attendance' }}
+        />
+        <Stack.Screen
+          name="ActiveQrAttendance"
+          component={ActiveQrAttendanceScreen}
+          options={{ title: 'QR Attendance' }}
+        />
+        <Stack.Screen
+          name="TeacherFeedback"
+          component={TeacherFeedbackScreen}
+          options={{ title: 'Course Feedback' }}
+        />
       </Stack.Navigator>
       <StatusBar style="auto" />
     </NavigationContainer>

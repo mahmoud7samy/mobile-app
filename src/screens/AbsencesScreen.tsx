@@ -8,53 +8,41 @@ import { useThemeStore } from '../lib/themeStore';
 import {
   getSessionsForAbsenceReasons,
   submitAbsenceReason,
-  submitAbsenceReasonRange
 } from '../lib/api';
-import DateTimePicker from '@react-native-community/datetimepicker';
-
-type Tab = 'session' | 'range';
 
 export default function AbsencesScreen({ route, navigation }: any) {
   const { courseInstanceId, subjectName, levelName } = route.params ?? {};
   const { theme: t } = useThemeStore();
   
-  const [activeTab, setActiveTab] = useState<Tab>('session');
-  
   // Data
   const [sessions, setSessions] = useState<any[]>([]);
-  const [loadingSessions, setLoadingSessions] = useState(false);
+  const [loading, setLoading] = useState(true);
   
-  // Form State
-  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
-  const [note, setNote] = useState('');
-  const [file, setFile] = useState<DocumentPicker.DocumentPickerAsset | null>(null);
-  
-  const [startDate, setStartDate] = useState(new Date());
-  const [endDate, setEndDate] = useState(new Date());
-  const [showStartPicker, setShowStartPicker] = useState(false);
-  const [showEndPicker, setShowEndPicker] = useState(false);
-  
-  const [submitting, setSubmitting] = useState(false);
+  // Form State per session
+  const [submittingSessionId, setSubmittingSessionId] = useState<string | null>(null);
+  const [notes, setNotes] = useState<Record<string, string>>({});
+  const [files, setFiles] = useState<Record<string, DocumentPicker.DocumentPickerAsset | null>>({});
 
   useEffect(() => {
-    if (courseInstanceId && activeTab === 'session') {
+    if (courseInstanceId) {
       fetchSessions();
     }
-  }, [courseInstanceId, activeTab]);
+  }, [courseInstanceId]);
 
   const fetchSessions = async () => {
-    setLoadingSessions(true);
+    setLoading(true);
     try {
       const { data } = await getSessionsForAbsenceReasons(courseInstanceId);
-      setSessions(data || []);
+      setSessions(Array.isArray(data) ? data : []);
     } catch (err) {
-      console.error('Failed to load missed sessions', err);
+      console.error('Failed to load sessions', err);
+      Alert.alert('Error', 'Failed to load sessions.');
     } finally {
-      setLoadingSessions(false);
+      setLoading(false);
     }
   };
 
-  const handlePickFile = async () => {
+  const handlePickFile = async (sessionId: string) => {
     try {
       const result = await DocumentPicker.getDocumentAsync({
         type: ['application/pdf', 'image/*'],
@@ -62,23 +50,26 @@ export default function AbsencesScreen({ route, navigation }: any) {
       });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
-        setFile(result.assets[0]);
+        setFiles(prev => ({ ...prev, [sessionId]: result.assets[0] }));
       }
     } catch (err) {
       Alert.alert('Error', 'Failed to pick a file.');
     }
   };
 
-  const handleSubmit = async () => {
-    if (activeTab === 'session' && !selectedSessionId) {
-      Alert.alert('Error', 'Please select a missed session.');
+  const handleSubmit = async (sessionId: string) => {
+    const note = notes[sessionId] || '';
+    const file = files[sessionId];
+
+    if (!file && !note.trim()) {
+      Alert.alert('Error', 'Please add a note or document.');
       return;
     }
     
-    setSubmitting(true);
+    setSubmittingSessionId(sessionId);
     try {
       const formData = new FormData();
-      if (note) formData.append('message', note);
+      if (note.trim()) formData.append('message', note.trim());
       
       if (file) {
         formData.append('file', {
@@ -88,187 +79,119 @@ export default function AbsencesScreen({ route, navigation }: any) {
         } as any);
       }
 
-      if (activeTab === 'session') {
-        const { data } = await submitAbsenceReason(selectedSessionId!, formData);
-        Alert.alert('Success', data.message || 'Absence reason submitted.');
-      } else {
-        formData.append('startDate', startDate.toISOString());
-        formData.append('endDate', endDate.toISOString());
-        const { data } = await submitAbsenceReasonRange(courseInstanceId, formData);
-        Alert.alert('Success', data.message || 'Absence reason submitted.');
-      }
+      await submitAbsenceReason(sessionId, formData);
+      Alert.alert('Success', 'Absence reason submitted.');
       
-      navigation.goBack();
+      // Refresh sessions to show updated status
+      await fetchSessions();
+      
+      // Clear form state for this session
+      setNotes(prev => ({ ...prev, [sessionId]: '' }));
+      setFiles(prev => ({ ...prev, [sessionId]: null }));
     } catch (err: any) {
       console.error(err);
       const msg = err.response?.data?.message || 'Failed to submit absence reason.';
       Alert.alert('Error', msg);
     } finally {
-      setSubmitting(false);
+      setSubmittingSessionId(null);
     }
   };
 
-  const formatDate = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  const formatDate = (dateString: string) => {
+    const d = new Date(dateString);
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  };
 
   return (
     <View style={[styles.container, { backgroundColor: t.bg }]}>
       <StatusBar barStyle={t.isDark ? 'light-content' : 'dark-content'} />
       
-      <View style={styles.header}>
+      <View style={[styles.header, { borderBottomColor: t.border }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={{ padding: 8, marginLeft: -8, marginRight: 8 }}>
           <Text style={{ color: t.primary, fontSize: 16, fontWeight: '600' }}>← Back</Text>
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
-          <Text style={[styles.headerTitle, { color: t.text }]} numberOfLines={1}>Submit Excuse</Text>
+          <Text style={[styles.headerTitle, { color: t.text }]} numberOfLines={1}>Submit Reason for Absence</Text>
           <Text style={[styles.headerSub, { color: t.textMuted }]} numberOfLines={1}>
             {subjectName} {levelName ? `· ${levelName}` : ''}
           </Text>
         </View>
       </View>
 
-      {/* Tabs */}
-      <View style={[styles.tabsWrap, { backgroundColor: t.surface }]}>
-        <TouchableOpacity 
-          style={[styles.tabBtn, activeTab === 'session' && { backgroundColor: t.primaryLight }]}
-          onPress={() => { setActiveTab('session'); setFile(null); setNote(''); }}
-        >
-          <Text style={[styles.tabText, { color: activeTab === 'session' ? t.primary : t.textSecondary }]}>By Session</Text>
-        </TouchableOpacity>
-        <TouchableOpacity 
-          style={[styles.tabBtn, activeTab === 'range' && { backgroundColor: t.primaryLight }]}
-          onPress={() => { setActiveTab('range'); setFile(null); setNote(''); }}
-        >
-          <Text style={[styles.tabText, { color: activeTab === 'range' ? t.primary : t.textSecondary }]}>Date Range</Text>
-        </TouchableOpacity>
-      </View>
-
       <ScrollView contentContainerStyle={styles.content}>
-        {activeTab === 'session' ? (
-          <View style={styles.section}>
-            <Text style={[styles.label, { color: t.text }]}>Select Missed Session</Text>
-            {loadingSessions ? (
-              <ActivityIndicator color={t.primary} style={{ marginVertical: 20 }} />
-            ) : sessions.length === 0 ? (
-              <Text style={{ color: t.textMuted, fontStyle: 'italic', marginBottom: 16 }}>No missed sessions found.</Text>
-            ) : (
-              sessions.map(s => (
-                <TouchableOpacity
-                  key={s.id}
-                  style={[
-                    styles.sessionCard,
-                    { backgroundColor: t.surface, borderColor: selectedSessionId === s.id ? t.primary : t.border }
-                  ]}
-                  onPress={() => setSelectedSessionId(s.id)}
-                  activeOpacity={0.7}
-                >
-                  <View style={[styles.radio, { borderColor: selectedSessionId === s.id ? t.primary : t.textMuted }]}>
-                    {selectedSessionId === s.id && <View style={[styles.radioFill, { backgroundColor: t.primary }]} />}
-                  </View>
-                  <View>
-                    <Text style={[styles.sessionDate, { color: t.text }]}>
-                      {new Date(s.date).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' })}
-                    </Text>
-                    {s.durationHours > 0 && (
-                      <Text style={[styles.sessionSub, { color: t.textSecondary }]}>{s.durationHours} hours</Text>
-                    )}
-                  </View>
-                </TouchableOpacity>
-              ))
-            )}
-          </View>
+        <Text style={[styles.instruction, { color: t.textSecondary }]}>
+          Review your attendance sessions and submit a reason or document for missed classes.
+        </Text>
+
+        {loading ? (
+          <ActivityIndicator color={t.primary} style={{ marginTop: 40 }} size="large" />
+        ) : sessions.length === 0 ? (
+          <Text style={[styles.emptyText, { color: t.textMuted }]}>
+            No closed sessions yet.
+          </Text>
         ) : (
-          <View style={styles.section}>
-            <Text style={[styles.label, { color: t.text }]}>Absence Period</Text>
-            
-            <View style={styles.dateRow}>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.dateLabel, { color: t.textSecondary }]}>Start Date</Text>
-                <TouchableOpacity 
-                  style={[styles.dateBtn, { backgroundColor: t.surface, borderColor: t.border }]}
-                  onPress={() => setShowStartPicker(true)}
-                >
-                  <Text style={{ color: t.text }}>{formatDate(startDate)}</Text>
-                </TouchableOpacity>
-                {showStartPicker && (
-                  <DateTimePicker
-                    value={startDate}
-                    mode="date"
-                    display="default"
-                    onChange={(e: any, date?: Date) => {
-                      setShowStartPicker(Platform.OS === 'ios');
-                      if (date) setStartDate(date);
-                    }}
-                  />
+          <View style={styles.sessionsList}>
+            {sessions.map((s) => (
+              <View key={s.sessionId} style={[styles.sessionCard, { backgroundColor: t.surface, borderColor: t.border }]}>
+                <View style={styles.sessionHeader}>
+                  <Text style={[styles.sessionDate, { color: t.text }]}>
+                    {formatDate(s.sessionDate)}
+                  </Text>
+                  <Text style={[styles.sessionStatus, { color: s.status === 'present' ? t.success : t.danger }]}>
+                    {s.status === 'present' ? 'Present' : 'Absent'}
+                  </Text>
+                </View>
+
+                {s.hasSubmission && (
+                  <View style={styles.submissionStatus}>
+                    <Text style={[styles.submissionText, { color: t.textSecondary }]}>
+                      Status: <Text style={{ fontWeight: 'bold' }}>{s.submissionStatus === 'pending' ? 'Pending Review' : s.submissionStatus === 'approved' ? 'Approved' : 'Rejected'}</Text>
+                    </Text>
+                  </View>
+                )}
+
+                {s.canSubmit && (
+                  <View style={styles.formContainer}>
+                    <TextInput
+                      style={[styles.input, { backgroundColor: t.bg, borderColor: t.border, color: t.text }]}
+                      placeholder="Optional note..."
+                      placeholderTextColor={t.textMuted}
+                      value={notes[s.sessionId] || ''}
+                      onChangeText={(val) => setNotes(prev => ({ ...prev, [s.sessionId]: val }))}
+                    />
+                    
+                    <View style={styles.fileRow}>
+                      <TouchableOpacity 
+                        style={[styles.fileBtn, { borderColor: t.border }]} 
+                        onPress={() => handlePickFile(s.sessionId)}
+                      >
+                        <Text style={[styles.fileBtnText, { color: t.primary }]}>Choose File</Text>
+                      </TouchableOpacity>
+                      <Text style={[styles.fileName, { color: t.textMuted }]} numberOfLines={1}>
+                        {files[s.sessionId] ? files[s.sessionId]!.name : 'No file chosen'}
+                      </Text>
+                    </View>
+
+                    <TouchableOpacity 
+                      style={[
+                        styles.submitBtn, 
+                        { backgroundColor: t.danger, opacity: submittingSessionId === s.sessionId ? 0.6 : 1 }
+                      ]}
+                      onPress={() => handleSubmit(s.sessionId)}
+                      disabled={submittingSessionId === s.sessionId}
+                    >
+                      {submittingSessionId === s.sessionId ? (
+                        <ActivityIndicator color="#fff" size="small" />
+                      ) : (
+                        <Text style={styles.submitBtnText}>Submit Reason</Text>
+                      )}
+                    </TouchableOpacity>
+                  </View>
                 )}
               </View>
-              
-              <View style={{ width: 16 }} />
-              
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.dateLabel, { color: t.textSecondary }]}>End Date</Text>
-                <TouchableOpacity 
-                  style={[styles.dateBtn, { backgroundColor: t.surface, borderColor: t.border }]}
-                  onPress={() => setShowEndPicker(true)}
-                >
-                  <Text style={{ color: t.text }}>{formatDate(endDate)}</Text>
-                </TouchableOpacity>
-                {showEndPicker && (
-                  <DateTimePicker
-                    value={endDate}
-                    mode="date"
-                    display="default"
-                    minimumDate={startDate}
-                    onChange={(e: any, date?: Date) => {
-                      setShowEndPicker(Platform.OS === 'ios');
-                      if (date) setEndDate(date);
-                    }}
-                  />
-                )}
-              </View>
-            </View>
+            ))}
           </View>
         )}
-
-        <View style={styles.section}>
-          <Text style={[styles.label, { color: t.text }]}>Provide a Note (Optional)</Text>
-          <TextInput
-            style={[styles.input, { backgroundColor: t.surface, borderColor: t.border, color: t.text }]}
-            placeholder="E.g., I had a doctor's appointment..."
-            placeholderTextColor={t.textMuted}
-            multiline
-            numberOfLines={4}
-            value={note}
-            onChangeText={setNote}
-          />
-        </View>
-
-        <View style={styles.section}>
-          <Text style={[styles.label, { color: t.text }]}>Attach Proof (Required for ranges over 2 days)</Text>
-          <TouchableOpacity 
-            style={[styles.fileBtn, { backgroundColor: t.surface, borderColor: t.primary }]}
-            onPress={handlePickFile}
-            activeOpacity={0.7}
-          >
-            <Text style={{ fontSize: 24, marginBottom: 8 }}>📎</Text>
-            <Text style={{ color: t.primary, fontWeight: '600' }}>
-              {file ? 'Change Attachment' : 'Select PDF or Image'}
-            </Text>
-            {file && <Text style={{ color: t.textSecondary, fontSize: 13, marginTop: 4 }}>{file.name}</Text>}
-          </TouchableOpacity>
-        </View>
-
-        <TouchableOpacity 
-          style={[styles.submitBtn, { backgroundColor: String(t.primary), opacity: submitting ? 0.7 : 1 }]}
-          onPress={handleSubmit}
-          disabled={submitting || (activeTab === 'session' && sessions.length === 0)}
-          activeOpacity={0.8}
-        >
-          {submitting ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.submitText}>Submit Excuse</Text>
-          )}
-        </TouchableOpacity>
       </ScrollView>
     </View>
   );
@@ -276,31 +199,84 @@ export default function AbsencesScreen({ route, navigation }: any) {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  header: { 
-    flexDirection: 'row', alignItems: 'center', 
-    paddingHorizontal: 20, paddingTop: Platform.OS === 'ios' ? 60 : 20, paddingBottom: 16 
+  header: {
+    flexDirection: 'row', alignItems: 'center',
+    padding: 16, paddingTop: Platform.OS === 'ios' ? 50 : 20,
+    borderBottomWidth: 1,
   },
-  headerTitle: { fontSize: 22, fontWeight: '800' },
+  headerTitle: { fontSize: 18, fontWeight: '700' },
   headerSub: { fontSize: 13, marginTop: 2 },
-  tabsWrap: { flexDirection: 'row', marginHorizontal: 20, borderRadius: 12, padding: 4, marginBottom: 10 },
-  tabBtn: { flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 8 },
-  tabText: { fontWeight: '600', fontSize: 14 },
-  content: { padding: 20, paddingBottom: 60 },
-  section: { marginBottom: 24 },
-  label: { fontSize: 16, fontWeight: '700', marginBottom: 12 },
-  sessionCard: { 
-    flexDirection: 'row', alignItems: 'center', 
-    padding: 16, borderWidth: 1.5, borderRadius: 12, marginBottom: 12
+  content: { padding: 16, paddingBottom: 40 },
+  instruction: { fontSize: 14, marginBottom: 20, lineHeight: 20 },
+  emptyText: { textAlign: 'center', marginTop: 40, fontSize: 15 },
+  sessionsList: { gap: 16 },
+  sessionCard: {
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 16,
   },
-  radio: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
-  radioFill: { width: 10, height: 10, borderRadius: 5 },
-  sessionDate: { fontSize: 15, fontWeight: '600', marginBottom: 2 },
-  sessionSub: { fontSize: 13 },
-  dateRow: { flexDirection: 'row', alignItems: 'center' },
-  dateLabel: { fontSize: 13, marginBottom: 6, fontWeight: '500' },
-  dateBtn: { borderWidth: 1, borderRadius: 10, padding: 14, alignItems: 'center' },
-  input: { borderWidth: 1, borderRadius: 12, padding: 16, fontSize: 15, minHeight: 100, textAlignVertical: 'top' },
-  fileBtn: { borderWidth: 1.5, borderStyle: 'dashed', borderRadius: 16, padding: 24, alignItems: 'center' },
-  submitBtn: { borderRadius: 14, padding: 16, alignItems: 'center', marginTop: 10 },
-  submitText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  sessionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  sessionDate: {
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  sessionStatus: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  submissionStatus: {
+    marginTop: 4,
+  },
+  submissionText: {
+    fontSize: 14,
+  },
+  formContainer: {
+    marginTop: 16,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#ccc',
+    paddingTop: 16,
+  },
+  input: {
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 14,
+    marginBottom: 12,
+  },
+  fileRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  fileBtn: {
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 6,
+    marginRight: 12,
+  },
+  fileBtnText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  fileName: {
+    flex: 1,
+    fontSize: 12,
+  },
+  submitBtn: {
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  submitBtnText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: 'bold',
+  },
 });

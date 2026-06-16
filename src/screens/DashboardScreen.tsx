@@ -2,14 +2,14 @@ import React, { useEffect, useState, useRef, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView,
   RefreshControl, TouchableOpacity, ActivityIndicator, StatusBar,
-  Animated, Pressable,
+  Animated, Pressable, Modal,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import {
   getDashboard, getChatUnread, getStudentNotifications,
   getStudentAnnouncements, getStaffAnnouncements,
   getWebAuthnRegisterOptions, verifyWebAuthnRegister, getWebAuthnRegisterStatus,
-  getAiStatus,
+  getAiStatus, getScheduledQuizzesForStudent,
   type DashboardResponse, type DashboardCourse
 } from '../lib/api';
 import { useAuthStore } from '../lib/store';
@@ -29,6 +29,7 @@ export default function DashboardScreen({ navigation }: any) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [passkeyLoading, setPasskeyLoading] = useState<string | null>(null);
+  const [joinQuizCourse, setJoinQuizCourse] = useState<DashboardCourse | null>(null);
 
   const handlePasskeySetup = async (courseId: string) => {
     try {
@@ -201,11 +202,13 @@ export default function DashboardScreen({ navigation }: any) {
   const student = data?.student;
   // Match web behavior: if setting is missing, default to enabled.
   const prerequisiteTestEnabled = (data as any)?.prerequisiteTestEnabled ?? true;
+  const feedbackEnabled = (data as any)?.feedbackEnabled ?? false;
   const levelName = student?.levelName ?? '';
   const studentName = student?.studentName ?? user?.profileName ?? user?.username ?? '';
   const initials = studentName.split(' ').map((w: string) => w[0]).join('').slice(0, 2).toUpperCase();
 
   return (
+    <>
     <ScrollView
       style={[styles.container, { backgroundColor: t.bg }]}
       contentContainerStyle={styles.content}
@@ -437,12 +440,17 @@ export default function DashboardScreen({ navigation }: any) {
               onTranscripts={() => navigation.navigate('TranscriptList', { courseInstanceId: course.courseInstanceId, subjectName: course.subjectName, levelName: course.levelName })}
               onAnnounce={!isStudent ? () => navigation.navigate('CreateAnnouncement', { courseInstanceId: course.courseInstanceId, subjectName: course.subjectName }) : undefined}
               onAbsences={!isStudent ? () => navigation.navigate('ReviewAbsences', { courseInstanceId: course.courseInstanceId, subjectName: course.subjectName }) : () => navigation.navigate('Absences', { courseInstanceId: course.courseInstanceId, subjectName: course.subjectName, levelName: course.levelName, isPractical: course.courseType === 'practical' })}
-              onGrades={!isStudent ? () => navigation.navigate('TeacherGrades', { courseInstanceId: course.courseInstanceId, subjectName: course.subjectName }) : undefined}
+              onGrades={!isStudent ? () => navigation.navigate('TeacherGrades', { courseInstanceId: course.courseInstanceId, subjectName: course.subjectName }) : () => navigation.navigate('StudentGrades', { courseInstanceId: course.courseInstanceId, subjectName: course.subjectName, levelName: course.levelName })}
               onCheating={!isStudent ? () => navigation.navigate('CheatingReports', { courseInstanceId: course.courseInstanceId, subjectName: course.subjectName }) : undefined}
               onPasskey={isStudent ? () => handlePasskeySetup(course.courseInstanceId) : undefined}
               passkeyLoading={isStudent ? (passkeyLoading === course.courseInstanceId) : false}
               showPreTest={isStudent && prerequisiteTestEnabled}
               onPreTest={() => navigation.navigate('PrerequisiteTest', { materials: (course as any).materials ?? [], subjectName: course.subjectName })}
+              onFeedback={isStudent && feedbackEnabled ? () => navigation.navigate('SubmitFeedback', { courseInstanceId: course.courseInstanceId, subjectName: course.subjectName, levelName: course.levelName }) : (!isStudent ? () => navigation.navigate('TeacherFeedback', { courseInstanceId: course.courseInstanceId, subjectName: course.subjectName }) : undefined)}
+              onRequirements={!isStudent ? () => navigation.navigate('TeacherRequirements', { courseInstanceId: course.courseInstanceId, subjectName: course.subjectName }) : undefined}
+              onManualAttendance={!isStudent ? () => navigation.navigate('ActiveAttendance', { courseInstanceId: course.courseInstanceId, subjectName: course.subjectName }) : undefined}
+              onQrAttendance={!isStudent ? () => navigation.navigate('ActiveQrAttendance', { courseInstanceId: course.courseInstanceId, subjectName: course.subjectName }) : undefined}
+              onJoinQuiz={isStudent ? () => setJoinQuizCourse(course) : undefined}
             />
           ))
         }
@@ -450,6 +458,16 @@ export default function DashboardScreen({ navigation }: any) {
 
       <View style={{ height: 32 }} />
     </ScrollView>
+    {joinQuizCourse && (
+      <JoinQuizModal 
+        course={joinQuizCourse} 
+        visible={!!joinQuizCourse} 
+        onClose={() => setJoinQuizCourse(null)}
+        navigation={navigation}
+        theme={t}
+      />
+    )}
+    </>
   );
 }
 
@@ -478,12 +496,14 @@ const pillStyles = StyleSheet.create({
   label: { fontSize: 13, fontWeight: '600' },
 });
 
-function CourseCard({ course, theme: t, onGroupChat, onTasks, onMaterials, onAttend, onTranscripts, onAbsences, onPasskey, passkeyLoading, showPreTest, onPreTest, onAnnounce, onGrades, onCheating }: {
+function CourseCard({ course, theme: t, onGroupChat, onTasks, onMaterials, onAttend, onTranscripts, onAbsences, onPasskey, passkeyLoading, showPreTest, onPreTest, onAnnounce, onGrades, onCheating, onFeedback, onRequirements, onManualAttendance, onQrAttendance, onJoinQuiz }: {
   course: DashboardCourse; theme: any;
   onGroupChat: () => void; onTasks: () => void; onMaterials: () => void;
   onAttend?: () => void; onTranscripts: () => void; onAbsences?: () => void; onPasskey?: () => void; passkeyLoading?: boolean;
   showPreTest?: boolean; onPreTest?: () => void; onAnnounce?: () => void;
-  onGrades?: () => void; onCheating?: () => void;
+  onGrades?: () => void; onCheating?: () => void; onFeedback?: () => void;
+  onRequirements?: () => void; onManualAttendance?: () => void; onQrAttendance?: () => void;
+  onJoinQuiz?: () => void;
 }) {
   const isPractical = course.courseType === 'practical';
   const att = course.attendance;
@@ -533,13 +553,18 @@ function CourseCard({ course, theme: t, onGroupChat, onTasks, onMaterials, onAtt
         <ActionBtn label="Materials" onPress={onMaterials} bg={t.surface2} text={t.textSecondary} />
         <ActionBtn label="Transcripts" onPress={onTranscripts} bg={t.surface2} text={t.textSecondary} />
         {onAnnounce && <ActionBtn label="Announce" onPress={onAnnounce} bg={t.primaryLight} text={t.primary} />}
-        {onAttend && <ActionBtn label="Attendance" onPress={onAttend} bg={t.surface2} text={t.textSecondary} />}
+        {onAttend && <ActionBtn label={onManualAttendance ? "Attendance Report" : "Attendance"} onPress={onAttend} bg={t.surface2} text={t.textSecondary} />}
+        {onManualAttendance && <ActionBtn label="Start Manual Attendance" onPress={onManualAttendance} bg={t.primaryLight} text={t.primary} />}
+        {onQrAttendance && <ActionBtn label="Start QR Attendance" onPress={onQrAttendance} bg={t.primaryLight} text={t.primary} />}
         {onAbsences && <ActionBtn label="Reasons for Absence" onPress={onAbsences} bg={t.surface2} text={t.textSecondary} />}
         {onGrades && <ActionBtn label="Grades" onPress={onGrades} bg={t.surface2} text={t.textSecondary} />}
+        {onJoinQuiz && <ActionBtn label="Join Quiz" onPress={onJoinQuiz} bg={t.primaryLight} text={t.primary} />}
         {onCheating && <ActionBtn label="Cheating Flags" onPress={onCheating} bg={'rgba(239, 68, 68, 0.15)'} text={'#EF4444'} />}
+        {onRequirements && <ActionBtn label="Requirements" onPress={onRequirements} bg={t.surface2} text={t.textSecondary} />}
         {showPreTest && onPreTest && (
           <ActionBtn label="Pre-Test" onPress={onPreTest} bg={t.primaryLight} text={t.primary} />
         )}
+        {onFeedback && <ActionBtn label="Feedback" onPress={onFeedback} bg={t.surface2} text={t.textSecondary} />}
         {onPasskey && (
           <ActionBtn
             label={passkeyLoading ? "Setting up..." : "Passkey"}
@@ -666,3 +691,90 @@ const bannerStyles = StyleSheet.create({
   close: { paddingLeft: 12, paddingVertical: 4 },
   closeText: { color: 'rgba(255,255,255,0.6)', fontSize: 16, fontWeight: '700' },
 });
+
+
+
+
+function JoinQuizModal({ course, visible, onClose, navigation, theme: t }: { course: DashboardCourse; visible: boolean; onClose: () => void; navigation: any; theme: any }) {
+  const [quizzes, setQuizzes] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (visible && course) {
+      loadQuizzes();
+    }
+  }, [visible, course]);
+
+  const loadQuizzes = async () => {
+    setLoading(true);
+    try {
+      const { data } = await getScheduledQuizzesForStudent(course.courseInstanceId);
+      setQuizzes(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error('Failed to load scheduled quizzes', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Modal visible={visible} animationType="slide" transparent={true} onRequestClose={onClose}>
+      <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 20 }}>
+        <View style={{ backgroundColor: t.bg, borderRadius: 16, padding: 20, maxHeight: '80%' }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <Text style={{ fontSize: 18, fontWeight: '700', color: t.text }}>Join Quiz - {course?.subjectName}</Text>
+            <TouchableOpacity onPress={onClose} style={{ padding: 4 }}>
+              <Ionicons name="close" size={24} color={t.textMuted} />
+            </TouchableOpacity>
+          </View>
+
+          {loading ? (
+            <ActivityIndicator size="large" color={t.primary} style={{ marginVertical: 40 }} />
+          ) : quizzes.length === 0 ? (
+            <Text style={{ color: t.textMuted, textAlign: 'center', marginVertical: 20 }}>No scheduled exams available.</Text>
+          ) : (
+            <ScrollView>
+              {quizzes.map((q) => {
+                const isProctored = q.requireSEB || q.headTrackingEnabled || q.eyeTrackingEnabled || q.voiceDetectionEnabled;
+                return (
+                  <View key={q.quizId} style={{ backgroundColor: t.surface, borderWidth: 1, borderColor: t.border, borderRadius: 12, padding: 16, marginBottom: 12 }}>
+                    <Text style={{ fontSize: 16, fontWeight: '600', color: t.text, marginBottom: 4 }}>{q.title}</Text>
+                    <Text style={{ fontSize: 13, color: t.textSecondary, marginBottom: 2 }}>
+                      Scheduled: {new Date(q.scheduledStart).toLocaleString()}
+                    </Text>
+                    {isProctored ? (
+                      <Text style={{ fontSize: 13, color: '#EF4444', marginBottom: 12, fontWeight: '500' }}>
+                        Requires SEB/AI Proctoring. Please take on web.
+                      </Text>
+                    ) : (
+                      <Text style={{ fontSize: 13, color: t.textMuted, marginBottom: 12 }}>
+                        Standard Quiz (No proctoring)
+                      </Text>
+                    )}
+
+                    <TouchableOpacity
+                      disabled={!q.isJoinOpen || isProctored}
+                      onPress={() => {
+                        onClose();
+                        navigation.navigate('Exam', { quizId: q.quizId, subjectName: course.subjectName, timeLimit: q.durationMinutes });
+                      }}
+                      style={{
+                        backgroundColor: (q.isJoinOpen && !isProctored) ? t.primary : t.border,
+                        paddingVertical: 10, borderRadius: 8, alignItems: 'center'
+                      }}
+                    >
+                      <Text style={{ color: (q.isJoinOpen && !isProctored) ? '#fff' : t.textMuted, fontWeight: '600' }}>
+                        {isProctored ? 'Cannot join on mobile' : q.isJoinOpen ? 'Join Quiz' : (q.isSubmitted ? 'Submitted' : 'Not Active')}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                );
+              })}
+            </ScrollView>
+          )}
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
