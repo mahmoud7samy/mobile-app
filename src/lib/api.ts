@@ -1,4 +1,5 @@
 import axios from 'axios';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getAuthToken, useAuthStore } from './store';
 
 export const API_BASE_URL =
@@ -18,10 +19,38 @@ api.interceptors.request.use((config) => {
 });
 
 api.interceptors.response.use(
-  (response) => response,
-  (error) => {
+  async (response) => {
+    if (response.config.method?.toLowerCase() === 'get' && response.config.url) {
+      try {
+        const cacheKey = `api_cache_${response.config.url}`;
+        await AsyncStorage.setItem(cacheKey, JSON.stringify(response.data));
+      } catch (e) {
+        // Ignore cache save errors
+      }
+    }
+    return response;
+  },
+  async (error) => {
     if (error.response?.status === 401) {
       useAuthStore.getState().clearAuth().catch(() => { });
+    } else if (!error.response && error.config && error.config.method?.toLowerCase() === 'get' && error.config.url) {
+      // Likely a network error, attempt to load from cache
+      try {
+        const cacheKey = `api_cache_${error.config.url}`;
+        const cachedDataStr = await AsyncStorage.getItem(cacheKey);
+        if (cachedDataStr) {
+          return Promise.resolve({
+            data: JSON.parse(cachedDataStr),
+            status: 200,
+            statusText: 'OK from Cache',
+            headers: {},
+            config: error.config,
+            isCached: true
+          });
+        }
+      } catch (e) {
+        // Ignore cache read errors
+      }
     }
     return Promise.reject(error);
   }
@@ -167,12 +196,22 @@ export const getTasksByCourse = (courseInstanceId: string) =>
 export const getTask = (taskId: string) =>
   api.get<TaskDetail>(`/tasks/${taskId}`);
 
-/** Submit task (student). Pass FormData with one file under key 'file'. */
-export const submitTask = (taskId: string, formData: FormData) =>
-  api.post<TaskSubmission>(`/tasks/${taskId}/submit`, formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-    timeout: 60000,
-  });
+/** Presigned PUT URL for direct object upload */
+export const requestTaskUploadUrl = (body: {
+  taskId: string;
+  originalName: string;
+  contentType: string;
+  size: number;
+}) => api.post<{ url: string; fileKey: string }>('/tasks/upload-url', body);
+
+/** Finalize task submission metadata */
+export const submitTaskRecord = (body: {
+  taskId: string;
+  fileKey: string;
+  originalName: string;
+  mimeType: string;
+  size: number;
+}) => api.post('/tasks/submit', body);
 
 export interface TaskAttachment {
   attachmentId: string;
@@ -242,7 +281,7 @@ export interface MaterialsByCourseResponse {
 
 // ——— Attendance & Absence Excuses ———
 export const checkInAttendance = (code: string, courseInstanceId: string) =>
-  api.post<{ message: string; points: number }>('/attendance/check-in', { code, courseInstanceId });
+  api.post<{ message: string; points: number }>('/attendance/checkin', { code, courseInstanceId });
 
 export const submitQrScan = (token: string, scannedAt: string, courseInstanceId: string) =>
   api.post<{ attemptId?: string; needWebAuthn?: boolean; options?: any; verified?: boolean; points?: number }>('/attendance/qr/scan', { token, scannedAt, courseInstanceId });

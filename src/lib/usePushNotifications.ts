@@ -1,6 +1,9 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const PUSH_TOKEN_KEY = 'expo-push-token';
 
 // Detect if we are running inside Expo Go.
 // Expo Go SDK 53+ removed Android remote push notifications entirely.
@@ -8,13 +11,42 @@ import { Platform } from 'react-native';
 const IS_EXPO_GO = Constants.appOwnership === 'expo';
 
 /**
- * Sets up the foreground notification handler and registers the device's Expo
- * push token with the backend.
+ * Unregister the stored Expo push token from the backend.
+ * Call this BEFORE clearing the auth token (on logout).
+ */
+export async function unregisterPushToken(): Promise<void> {
+  try {
+    const token = await AsyncStorage.getItem(PUSH_TOKEN_KEY);
+    if (!token) return;
+
+    const { getAuthToken } = await import('./store');
+    const api = (await import('./api')).default;
+    const authToken = getAuthToken();
+    if (!authToken) return;
+
+    await api.post(
+      '/notifications/expo/unregister',
+      { token },
+      { headers: { Authorization: `Bearer ${authToken}` } },
+    );
+    console.log('[PushNotifications] Token unregistered from backend.');
+  } catch (err) {
+    console.warn('[PushNotifications] Failed to unregister token:', err);
+  } finally {
+    await AsyncStorage.removeItem(PUSH_TOKEN_KEY);
+  }
+}
+
+/**
+ * Sets up the foreground notification handler, registers the device's Expo
+ * push token with the backend, and handles notification tap navigation.
  *
  * ⚠️  This is a NO-OP when running inside Expo Go (SDK 53+). To test push
  *     notifications on Android, run:  npx expo run:android
  */
-export function usePushNotifications(enabled: boolean) {
+export function usePushNotifications(enabled: boolean, navigationRef?: any) {
+  const responseListenerRef = useRef<any>(null);
+
   useEffect(() => {
     // Skip everything when running in Expo Go – avoids the SDK 53 crash.
     if (!enabled || IS_EXPO_GO) {
@@ -44,6 +76,23 @@ export function usePushNotifications(enabled: boolean) {
             priority: Notifications.AndroidNotificationPriority.HIGH,
           }),
         });
+
+        // Handle notification tap — navigate to Notifications screen
+        if (responseListenerRef.current) {
+          Notifications.removeNotificationSubscription(responseListenerRef.current);
+        }
+        responseListenerRef.current = Notifications.addNotificationResponseReceivedListener(
+          (response) => {
+            console.log('[PushNotifications] Notification tapped:', response.notification.request.content);
+            try {
+              if (navigationRef?.current?.isReady()) {
+                navigationRef.current.navigate('Notifications');
+              }
+            } catch (navErr) {
+              console.warn('[PushNotifications] Navigation on tap failed:', navErr);
+            }
+          },
+        );
 
         // Request permission
         const { status: existing } = await Notifications.getPermissionsAsync();
@@ -97,6 +146,13 @@ export function usePushNotifications(enabled: boolean) {
           return;
         }
 
+        // Check if we already registered this exact token — skip redundant calls
+        const storedToken = await AsyncStorage.getItem(PUSH_TOKEN_KEY);
+        if (storedToken === token) {
+          console.log('[PushNotifications] Token already registered, skipping.');
+          return;
+        }
+
         // Register token with backend
         console.log('[PushNotifications] Registering token with backend...');
         await api.post(
@@ -104,6 +160,9 @@ export function usePushNotifications(enabled: boolean) {
           { token },
           { headers: { Authorization: `Bearer ${getAuthToken()}` } },
         );
+
+        // Persist token locally so we can unregister on logout
+        await AsyncStorage.setItem(PUSH_TOKEN_KEY, token);
         console.log('[PushNotifications] Token registered successfully!');
       } catch (err) {
         // Never crash the app – push is best-effort
@@ -112,6 +171,15 @@ export function usePushNotifications(enabled: boolean) {
     };
 
     setup();
+
+    return () => {
+      // Clean up notification response listener on unmount
+      if (responseListenerRef.current) {
+        import('expo-notifications').then((Notifications) => {
+          Notifications.removeNotificationSubscription(responseListenerRef.current);
+          responseListenerRef.current = null;
+        }).catch(() => {});
+      }
+    };
   }, [enabled]);
 }
-

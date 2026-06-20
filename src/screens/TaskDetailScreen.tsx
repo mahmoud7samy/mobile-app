@@ -6,9 +6,10 @@ import {
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
-import { getTask, getTasksByCourse, submitTask, getSubmissionsForGrading, setTaskGrade, type TaskDetail, API_BASE_URL } from '../lib/api';
+import { getTask, getTasksByCourse, requestTaskUploadUrl, submitTaskRecord, getSubmissionsForGrading, setTaskGrade, getAttendanceReport, type TaskDetail, API_BASE_URL } from '../lib/api';
 import { getAuthToken, useAuthStore } from '../lib/store';
 import { useThemeStore } from '../lib/themeStore';
+import { useFileHandler } from '../lib/useFileHandler';
 
 function getMimeType(fileName: string): string {
   const ext = fileName.includes('.') ? fileName.slice(fileName.lastIndexOf('.')).toLowerCase() : '';
@@ -29,10 +30,11 @@ export default function TaskDetailScreen({ route }: any) {
   const [task, setTask] = useState<TaskDetail | null>(null);
   const [submission, setSubmission] = useState<{ submitted: boolean; submittedAt?: string; grade?: number | null } | null>(null);
   const [allSubmissions, setAllSubmissions] = useState<any[]>([]);
+  const [enrolledStudents, setEnrolledStudents] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [gradingId, setGradingId] = useState<string | null>(null);
-  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const { downloadingIds, downloadAndOpen, saveToDevice } = useFileHandler();
 
   const load = async () => {
     if (!taskId) return;
@@ -46,8 +48,12 @@ export default function TaskDetailScreen({ route }: any) {
           const item = Array.isArray(list) ? list.find((t) => t.taskId === taskId) : null;
           setSubmission(item ? { submitted: item.submitted, submittedAt: item.submittedAt, grade: item.grade } : null);
         } else {
-          const { data: subs } = await getSubmissionsForGrading(courseId);
-          setAllSubmissions((subs || []).filter((s: any) => s.taskId === taskId));
+          const [{ data: subs }, { data: report }] = await Promise.all([
+            getSubmissionsForGrading(courseId),
+            getAttendanceReport(courseId).catch(() => ({ data: { students: [] } }))
+          ]);
+          setAllSubmissions((subs?.rows || []).filter((s: any) => s.taskId === taskId));
+          setEnrolledStudents(report?.students || []);
         }
       } else {
         setSubmission(null);
@@ -62,66 +68,14 @@ export default function TaskDetailScreen({ route }: any) {
 
   useEffect(() => { load(); }, [taskId]);
 
-  const downloadAttachment = async (attachmentId: string, fileName: string) => {
-    const token = getAuthToken();
-    if (!token) return;
-    setDownloadingId(attachmentId);
-    try {
-      const ext = fileName.includes('.') ? fileName.slice(fileName.lastIndexOf('.')) : '';
+  const handleDownloadAttachment = async (attachmentId: string, fileName: string) => {
+    const url = `${API_BASE_URL.replace(/\/$/, '')}/api/tasks/attachments/${attachmentId}/download`;
+    await downloadAndOpen(url, attachmentId, fileName);
+  };
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const docDir = (FileSystem as any).documentDirectory as string;
-      const dirInfo = await FileSystem.getInfoAsync(docDir + 'downloads/');
-      if (!dirInfo.exists) {
-        await FileSystem.makeDirectoryAsync(docDir + 'downloads/', { intermediates: true });
-      }
-
-      const path = `${docDir}downloads/${attachmentId}${ext}`;
-      const url = `${API_BASE_URL.replace(/\/$/, '')}/api/tasks/attachments/${attachmentId}/download`;
-
-      const downloadResumable = FileSystem.createDownloadResumable(
-        url,
-        path,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-
-      const result = await downloadResumable.downloadAsync();
-
-      if (!result || result.status !== 200) {
-        throw new Error(`Server returned ${result?.status}`);
-      }
-
-      const mimeType = getMimeType(fileName);
-
-      if (Platform.OS === 'android') {
-        try {
-          const permissions = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
-          if (permissions.granted) {
-            const base64 = await FileSystem.readAsStringAsync(result.uri, { encoding: FileSystem.EncodingType.Base64 });
-            const newUri = await FileSystem.StorageAccessFramework.createFileAsync(permissions.directoryUri, fileName, mimeType);
-            await FileSystem.writeAsStringAsync(newUri, base64, { encoding: FileSystem.EncodingType.Base64 });
-            Alert.alert('Success', `File saved to ${fileName}`);
-          } else {
-            await Sharing.shareAsync(result.uri, { mimeType, dialogTitle: fileName });
-          }
-        } catch (e: any) {
-          Alert.alert('Device Save Failed', e.message || 'Error saving file. Sharing instead.');
-          await Sharing.shareAsync(result.uri, { mimeType, dialogTitle: fileName });
-        }
-      } else {
-        const canShare = await Sharing.isAvailableAsync();
-        if (canShare) {
-          await Sharing.shareAsync(result.uri, { mimeType, dialogTitle: fileName });
-        } else {
-          Alert.alert('Downloaded', `Saved to App Data: ${result.uri}`);
-        }
-      }
-    } catch (err: any) {
-      console.error('Download error details:', err);
-      Alert.alert('Download failed', err.message ?? 'Try again');
-    } finally {
-      setDownloadingId(null);
-    }
+  const handleLongPressAttachment = async (attachmentId: string, fileName: string) => {
+    const url = `${API_BASE_URL.replace(/\/$/, '')}/api/tasks/attachments/${attachmentId}/download`;
+    await saveToDevice(url, attachmentId, fileName);
   };
 
   const pickAndSubmit = async () => {
@@ -130,10 +84,38 @@ export default function TaskDetailScreen({ route }: any) {
       const result = await DocumentPicker.getDocumentAsync({ type: '*/*', copyToCacheDirectory: true });
       if (result.canceled) return;
       const file = result.assets[0];
-      const formData = new FormData();
-      formData.append('file', { uri: file.uri, name: file.name ?? 'upload', type: file.mimeType ?? 'application/octet-stream' } as any);
       setSubmitting(true);
-      await submitTask(taskId, formData);
+
+      const mimeType = file.mimeType || getMimeType(file.name || '');
+      const originalName = file.name || 'upload';
+      const size = file.size || 0;
+
+      // 1. Get presigned URL
+      const { data: { url, fileKey } } = await requestTaskUploadUrl({
+        taskId,
+        originalName,
+        contentType: mimeType,
+        size,
+      });
+
+      // 2. Direct upload using FileSystem
+      const uploadRes = await FileSystem.uploadAsync(url, file.uri, {
+        httpMethod: 'PUT',
+        headers: { 'Content-Type': mimeType },
+      });
+      if (uploadRes.status !== 200) {
+        throw new Error(`Upload failed with status ${uploadRes.status}`);
+      }
+
+      // 3. Finalize metadata
+      await submitTaskRecord({
+        taskId,
+        fileKey,
+        originalName,
+        mimeType,
+        size,
+      });
+
       await load();
       Alert.alert('Done', 'Your submission was uploaded successfully.');
     } catch (err: any) {
@@ -174,59 +156,16 @@ export default function TaskDetailScreen({ route }: any) {
     );
   };
 
-  const downloadStudentSubmission = async (sub: any) => {
-    const token = getAuthToken();
-    if (!token) return;
-    setDownloadingId(sub.submissionId);
-    try {
-      // Very similar robust download function to regular task attachment, calling /tasks/submissions/:submissionId/download
-      const docDir = `${(FileSystem as any).documentDirectory}downloads/`;
-      const dirInfo = await FileSystem.getInfoAsync(docDir);
-      if (!dirInfo.exists) {
-        await FileSystem.makeDirectoryAsync(docDir, { intermediates: true });
-      }
+  const handleDownloadStudentSubmission = async (sub: any) => {
+    const fileName = sub.materialUploaded || `submission_${sub.studentCode || 'unknown'}.bin`;
+    const url = `${API_BASE_URL.replace(/\/$/, '')}/api/tasks/submissions/${sub.submissionId}/download`;
+    await downloadAndOpen(url, sub.submissionId, fileName);
+  };
 
-      const fileName = `submission_${sub.student.studentCode}.bin`;
-      const path = `${docDir}${fileName}`;
-      const url = `${API_BASE_URL.replace(/\/$/, '')}/api/tasks/submissions/${sub.submissionId}/download`;
-
-      const downloadResumable = FileSystem.createDownloadResumable(
-        url,
-        path,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-
-      const result = await downloadResumable.downloadAsync();
-
-      if (!result || result.status !== 200) {
-        throw new Error(`Server returned ${result?.status}`);
-      }
-
-      if (Platform.OS === 'android') {
-        try {
-          const permissions = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
-          if (permissions.granted) {
-            const base64 = await FileSystem.readAsStringAsync(result.uri, { encoding: FileSystem.EncodingType.Base64 });
-            const newUri = await FileSystem.StorageAccessFramework.createFileAsync(permissions.directoryUri, fileName, 'application/octet-stream');
-            await FileSystem.writeAsStringAsync(newUri, base64, { encoding: FileSystem.EncodingType.Base64 });
-            Alert.alert('Success', `File saved`);
-          } else {
-            await Sharing.shareAsync(result.uri, { dialogTitle: fileName });
-          }
-        } catch (e: any) {
-          await Sharing.shareAsync(result.uri, { dialogTitle: fileName });
-        }
-      } else {
-        const canShare = await Sharing.isAvailableAsync();
-        if (canShare) {
-          await Sharing.shareAsync(result.uri, { dialogTitle: fileName });
-        }
-      }
-    } catch (err: any) {
-      Alert.alert('Download failed', err.message ?? 'Try again');
-    } finally {
-      setDownloadingId(null);
-    }
+  const handleLongPressStudentSubmission = async (sub: any) => {
+    const fileName = sub.materialUploaded || `submission_${sub.studentCode || 'unknown'}.bin`;
+    const url = `${API_BASE_URL.replace(/\/$/, '')}/api/tasks/submissions/${sub.submissionId}/download`;
+    await saveToDevice(url, sub.submissionId, fileName);
   };
 
   if (!taskId) return (
@@ -280,12 +219,13 @@ export default function TaskDetailScreen({ route }: any) {
         <View style={[styles.card, { backgroundColor: t.surface, borderColor: t.border, ...t.shadow }]}>
           <Text style={[styles.label, { color: t.primary }]}>ATTACHMENTS</Text>
           {task.attachments.map((a) => {
-            const isDownloading = downloadingId === a.attachmentId;
+            const isDownloading = downloadingIds.has(a.attachmentId);
             return (
               <TouchableOpacity
                 key={a.attachmentId}
                 style={[styles.fileRow, { borderColor: t.border }]}
-                onPress={() => downloadAttachment(a.attachmentId, a.fileName)}
+                onPress={() => handleDownloadAttachment(a.attachmentId, a.fileName)}
+                onLongPress={() => handleLongPressAttachment(a.attachmentId, a.fileName)}
                 disabled={isDownloading}
                 activeOpacity={0.7}
               >
@@ -308,42 +248,82 @@ export default function TaskDetailScreen({ route }: any) {
 
       {!isStudent ? (
         <View style={styles.submissionsSection}>
-          <Text style={[styles.sectionTitle, { color: t.text }]}>Student Submissions ({allSubmissions.length})</Text>
+          <Text style={[styles.sectionTitle, { color: t.text }]}>Submitted ({allSubmissions.length})</Text>
           {allSubmissions.length === 0 ? (
             <Text style={[styles.submitHint, { color: t.textMuted, fontStyle: 'italic' }]}>No submissions yet.</Text>
           ) : (
-            allSubmissions.map((sub, idx) => (
-              <View key={sub.submissionId || idx} style={[styles.card, { backgroundColor: t.surface, borderColor: t.border }]}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ color: t.text, fontWeight: '700', fontSize: 16 }}>{sub.student?.studentName || sub.student?.studentCode}</Text>
-                    <Text style={{ color: t.textMuted, fontSize: 12 }}>{new Date(sub.submittedAt).toLocaleString()}</Text>
+            allSubmissions.map((sub, idx) => {
+              const isDownloading = downloadingIds.has(sub.submissionId);
+              return (
+                <View key={sub.submissionId || idx} style={[styles.card, { backgroundColor: t.surface, borderColor: t.border }]}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: t.text, fontWeight: '700', fontSize: 16 }}>{sub.studentName || sub.student?.studentName || sub.studentCode}</Text>
+                      <Text style={{ color: t.textMuted, fontSize: 12 }}>{new Date(sub.submittedAt || new Date()).toLocaleString()}</Text>
+                    </View>
+                    <View style={{ alignItems: 'flex-end' }}>
+                      <Text style={{ color: sub.grade != null ? t.success : t.danger, fontWeight: '800' }}>
+                        {sub.grade != null ? `${sub.grade} / ${task.totalPoints}` : 'Needs Grading'}
+                      </Text>
+                    </View>
                   </View>
-                  <View style={{ alignItems: 'flex-end' }}>
-                    <Text style={{ color: sub.grade != null ? t.success : t.danger, fontWeight: '800' }}>
-                      {sub.grade != null ? `${sub.grade} / ${task.totalPoints}` : 'Needs Grading'}
-                    </Text>
+
+                  {/* Submission Attachment row styled like regular file row */}
+                  <TouchableOpacity
+                    style={[styles.fileRow, { borderColor: t.border, marginBottom: 12, paddingVertical: 8, paddingHorizontal: 10, backgroundColor: t.bg, borderRadius: 10 }]}
+                    onPress={() => handleDownloadStudentSubmission(sub)}
+                    onLongPress={() => handleLongPressStudentSubmission(sub)}
+                    disabled={isDownloading}
+                    activeOpacity={0.7}
+                  >
+                    <View style={[styles.fileIcon, { backgroundColor: t.primaryLight }]}>
+                      <Text>📎</Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.fileName, { color: t.text }]} numberOfLines={1}>{sub.materialUploaded || 'Attached File'}</Text>
+                      <Text style={[styles.fileSize, { color: t.textMuted }]}>Tap to open, Long press to save</Text>
+                    </View>
+                    {isDownloading
+                      ? <ActivityIndicator size="small" color={t.primary} />
+                      : <Text style={[styles.openBtn, { color: t.primary }]}>Open</Text>
+                    }
+                  </TouchableOpacity>
+
+                  <View style={{ flexDirection: 'row', gap: 10 }}>
+                    <TouchableOpacity
+                      style={[styles.btnSolid, { backgroundColor: t.primary }]}
+                      onPress={() => handleGrade(sub)}
+                      disabled={gradingId === sub.submissionId}
+                    >
+                      {gradingId === sub.submissionId ? <ActivityIndicator size="small" color="#fff" /> : <Text style={{ color: '#fff', fontWeight: '700' }}>{sub.grade != null ? 'Update Grade' : 'Grade'}</Text>}
+                    </TouchableOpacity>
                   </View>
                 </View>
-                <View style={{ flexDirection: 'row', gap: 10 }}>
-                  <TouchableOpacity
-                    style={[styles.btnOutline, { borderColor: t.primary }]}
-                    onPress={() => downloadStudentSubmission(sub)}
-                    disabled={downloadingId === sub.submissionId}
-                  >
-                    {downloadingId === sub.submissionId ? <ActivityIndicator size="small" color={t.primary} /> : <Text style={{ color: t.primary, fontWeight: '700' }}>Download File</Text>}
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.btnSolid, { backgroundColor: t.primary }]}
-                    onPress={() => handleGrade(sub)}
-                    disabled={gradingId === sub.submissionId}
-                  >
-                    {gradingId === sub.submissionId ? <ActivityIndicator size="small" color="#fff" /> : <Text style={{ color: '#fff', fontWeight: '700' }}>Grade</Text>}
-                  </TouchableOpacity>
-                </View>
-              </View>
-            ))
+              );
+            })
           )}
+
+          {/* Missing Submissions */}
+          {(() => {
+            const missing = enrolledStudents.filter(s => !allSubmissions.find(sub => sub.studentId === s.studentId));
+            if (missing.length === 0) return null;
+            return (
+              <View style={{ marginTop: 24 }}>
+                <Text style={[styles.sectionTitle, { color: t.text }]}>Not Submitted ({missing.length})</Text>
+                {missing.map((s, idx) => (
+                  <View key={s.studentId || idx} style={[styles.card, { backgroundColor: t.surface, borderColor: t.border, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}>
+                    <View>
+                      <Text style={{ color: t.text, fontWeight: '700', fontSize: 16 }}>{s.studentName || s.studentCode}</Text>
+                      <Text style={{ color: t.textMuted, fontSize: 12 }}>{s.studentCode}</Text>
+                    </View>
+                    <View style={[styles.heroBadge, { backgroundColor: 'rgba(239,68,68,0.15)', borderRadius: 8 }]}>
+                      <Text style={{ color: '#EF4444', fontWeight: '800', fontSize: 12 }}>Missing</Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            );
+          })()}
         </View>
       ) : hasSubmission ? (
         <View style={[styles.card, { backgroundColor: t.successBg, borderColor: t.success + '44', ...t.shadow }]}>

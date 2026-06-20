@@ -106,19 +106,8 @@ export default function AbsencesScreen({ route, navigation }: any) {
     <View style={[styles.container, { backgroundColor: t.bg }]}>
       <StatusBar barStyle={t.isDark ? 'light-content' : 'dark-content'} />
       
-      <View style={[styles.header, { borderBottomColor: t.border }]}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={{ padding: 8, marginLeft: -8, marginRight: 8 }}>
-          <Text style={{ color: t.primary, fontSize: 16, fontWeight: '600' }}>← Back</Text>
-        </TouchableOpacity>
-        <View style={{ flex: 1 }}>
-          <Text style={[styles.headerTitle, { color: t.text }]} numberOfLines={1}>Submit Reason for Absence</Text>
-          <Text style={[styles.headerSub, { color: t.textMuted }]} numberOfLines={1}>
-            {subjectName} {levelName ? `· ${levelName}` : ''}
-          </Text>
-        </View>
-      </View>
-
       <ScrollView contentContainerStyle={styles.content}>
+        <Text style={[styles.title, { color: t.text }]}>{subjectName} - Absences</Text>
         <Text style={[styles.instruction, { color: t.textSecondary }]}>
           Review your attendance sessions and submit a reason or document for missed classes.
         </Text>
@@ -199,13 +188,7 @@ export default function AbsencesScreen({ route, navigation }: any) {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  header: {
-    flexDirection: 'row', alignItems: 'center',
-    padding: 16, paddingTop: Platform.OS === 'ios' ? 50 : 20,
-    borderBottomWidth: 1,
-  },
-  headerTitle: { fontSize: 18, fontWeight: '700' },
-  headerSub: { fontSize: 13, marginTop: 2 },
+  title: { fontSize: 20, fontWeight: 'bold', marginBottom: 8 },
   content: { padding: 16, paddingBottom: 40 },
   instruction: { fontSize: 14, marginBottom: 20, lineHeight: 20 },
   emptyText: { textAlign: 'center', marginTop: 40, fontSize: 15 },

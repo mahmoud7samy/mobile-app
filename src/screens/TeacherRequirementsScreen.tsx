@@ -4,15 +4,14 @@ import { useThemeStore } from '../lib/themeStore';
 import { useAuthStore } from '../lib/store';
 import { getCourseRequirementsMeta } from '../lib/api';
 import { Ionicons } from '@expo/vector-icons';
-import * as FileSystem from 'expo-file-system/legacy';
-import * as Sharing from 'expo-sharing';
+import { useFileHandler } from '../lib/useFileHandler';
 
 export default function TeacherRequirementsScreen({ route }: any) {
   const { courseInstanceId, subjectName } = route.params;
   const { theme: t } = useThemeStore();
   const [meta, setMeta] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [downloading, setDownloading] = useState(false);
+  const { downloadingIds, downloadAndOpen, saveToDevice } = useFileHandler();
 
   useEffect(() => {
     loadMeta();
@@ -29,39 +28,18 @@ export default function TeacherRequirementsScreen({ route }: any) {
     }
   };
 
-  const handleDownload = async () => {
+  const handleOpen = async () => {
     if (!meta) return;
-    try {
-      setDownloading(true);
-      const fileUri = FileSystem.documentDirectory + (meta.fileName || 'requirements.pdf').replace(/[^a-zA-Z0-9.-]/g, '_');
-      
-      const token = useAuthStore.getState().token;
-      // Note: adjust the base URL below if running on local backend
-      const baseUrl = useAuthStore.getState()._hydrated ? 'https://ai-powered-college-platform-production.up.railway.app' : '';
-      
-      const downloadRes = await FileSystem.downloadAsync(
-        `${baseUrl}/api/course-requirements/staff/${courseInstanceId}/download`,
-        fileUri,
-        {
-          headers: { Authorization: `Bearer ${token}` }
-        }
-      );
-      
-      if (downloadRes.status !== 200) {
-        throw new Error('Failed to download');
-      }
-        
-      if (await Sharing.isAvailableAsync()) {
-        await Sharing.shareAsync(downloadRes.uri);
-      } else {
-        Alert.alert("Downloaded", `File saved to ${downloadRes.uri}`);
-      }
-    } catch (err) {
-      console.error('Download error', err);
-      Alert.alert('Error', 'Failed to download document');
-    } finally {
-      setDownloading(false);
-    }
+    const baseUrl = useAuthStore.getState()._hydrated ? 'https://ai-powered-college-platform-production.up.railway.app' : '';
+    const url = `${baseUrl}/api/course-requirements/staff/${courseInstanceId}/download`;
+    await downloadAndOpen(url, 'requirements_doc', meta.fileName || 'requirements.pdf');
+  };
+
+  const handleLongPress = async () => {
+    if (!meta) return;
+    const baseUrl = useAuthStore.getState()._hydrated ? 'https://ai-powered-college-platform-production.up.railway.app' : '';
+    const url = `${baseUrl}/api/course-requirements/staff/${courseInstanceId}/download`;
+    await saveToDevice(url, 'requirements_doc', meta.fileName || 'requirements.pdf');
   };
 
   return (
@@ -84,18 +62,22 @@ export default function TeacherRequirementsScreen({ route }: any) {
           <Text style={[styles.metaData, { color: t.textSecondary }]}>
             Uploaded: {new Date(meta.uploadedAt).toLocaleDateString()}
           </Text>
+          <Text style={[styles.metaData, { color: t.textSecondary, marginBottom: 16, fontStyle: 'italic' }]}>
+            Tap to open, Long press to save
+          </Text>
           
           <TouchableOpacity
             style={[styles.downloadBtn, { backgroundColor: t.primary }]}
-            onPress={handleDownload}
-            disabled={downloading}
+            onPress={handleOpen}
+            onLongPress={handleLongPress}
+            disabled={downloadingIds.has('requirements_doc')}
           >
-            {downloading ? (
+            {downloadingIds.has('requirements_doc') ? (
               <ActivityIndicator size="small" color="#fff" />
             ) : (
               <>
-                <Ionicons name="download" size={18} color="#fff" style={{ marginRight: 8 }} />
-                <Text style={styles.downloadText}>Download Document</Text>
+                <Ionicons name="open-outline" size={18} color="#fff" style={{ marginRight: 8 }} />
+                <Text style={styles.downloadText}>Open Document</Text>
               </>
             )}
           </TouchableOpacity>

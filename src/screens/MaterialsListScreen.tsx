@@ -8,6 +8,7 @@ import * as Sharing from 'expo-sharing';
 import { getMaterials, type MaterialItem, type MaterialsByCourseResponse, API_BASE_URL } from '../lib/api';
 import { getAuthToken } from '../lib/store';
 import { useThemeStore } from '../lib/themeStore';
+import { useFileHandler } from '../lib/useFileHandler';
 
 type SectionItem = { type: 'header'; label: string } | { type: 'material'; material: MaterialItem; section: 'teacher' | 'ta' };
 
@@ -48,7 +49,7 @@ export default function MaterialsListScreen({ route }: any) {
   const [data, setData] = useState<MaterialsByCourseResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const { downloadingIds, downloadAndOpen, saveToDevice } = useFileHandler();
 
   const load = async () => {
     if (!courseInstanceId) return;
@@ -66,72 +67,14 @@ export default function MaterialsListScreen({ route }: any) {
   useEffect(() => { load(); }, [courseInstanceId]);
   const onRefresh = () => { setRefreshing(true); load(); };
 
-  const downloadAndOpen = async (material: MaterialItem) => {
-    const token = getAuthToken();
-    if (!token) return;
+  const handleDownload = async (material: MaterialItem) => {
     const url = `${API_BASE_URL.replace(/\/$/, '')}/api/materials/${material.materialId}/download`;
-    setDownloadingId(material.materialId);
-    try {
-      const filename = material.fileName || `material-${material.materialId}`;
-      const ext = filename.includes('.') ? filename.slice(filename.lastIndexOf('.')) : '';
-      
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const docDir = (FileSystem as any).documentDirectory as string;
-      const dirInfo = await FileSystem.getInfoAsync(docDir + 'downloads/');
-      if (!dirInfo.exists) {
-        await FileSystem.makeDirectoryAsync(docDir + 'downloads/', { intermediates: true });
-      }
+    await downloadAndOpen(url, material.materialId, material.fileName);
+  };
 
-      const path = `${docDir}downloads/${material.materialId}${ext}`;
-      
-      const downloadResumable = FileSystem.createDownloadResumable(
-        url,
-        path,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-
-      const result = await downloadResumable.downloadAsync();
-      
-      if (!result || result.status !== 200) {
-         throw new Error(`Server returned ${result?.status}`);
-      }
-
-      const mimeType = getMimeType(material.fileName);
-
-      if (Platform.OS === 'android') {
-        try {
-          const permissions = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
-          if (permissions.granted) {
-            // Read the downloaded file into base64
-            const base64 = await FileSystem.readAsStringAsync(result.uri, { encoding: FileSystem.EncodingType.Base64 });
-            // Create a new file in the user's chosen directory
-            const newUri = await FileSystem.StorageAccessFramework.createFileAsync(permissions.directoryUri, material.fileName, mimeType);
-            // Write the base64 content
-            await FileSystem.writeAsStringAsync(newUri, base64, { encoding: FileSystem.EncodingType.Base64 });
-            Alert.alert('Success', `File saved to ${material.fileName}`);
-          } else {
-            // Fallback to sharing if permission denied
-            await Sharing.shareAsync(result.uri, { mimeType, dialogTitle: material.fileName });
-          }
-        } catch (e: any) {
-          Alert.alert('Device Save Failed', e.message || 'Error saving file. Sharing instead.');
-          await Sharing.shareAsync(result.uri, { mimeType, dialogTitle: material.fileName });
-        }
-      } else {
-        // iOS still relies on Sharing.shareAsync because there's no direct equivalent to SAF that doesn't use the share sheet
-        const canShare = await Sharing.isAvailableAsync();
-        if (canShare) {
-          await Sharing.shareAsync(result.uri, { mimeType, dialogTitle: material.fileName });
-        } else {
-          Alert.alert('Downloaded', `Saved to App Data: ${result.uri}`);
-        }
-      }
-    } catch (err: any) {
-      console.error('Download error details:', err);
-      Alert.alert('Download failed', err.message ?? 'Try again');
-    } finally {
-      setDownloadingId(null);
-    }
+  const handleLongPress = async (material: MaterialItem) => {
+    const url = `${API_BASE_URL.replace(/\/$/, '')}/api/materials/${material.materialId}/download`;
+    await saveToDevice(url, material.materialId, material.fileName);
   };
 
   if (!courseInstanceId) return (
@@ -172,11 +115,12 @@ export default function MaterialsListScreen({ route }: any) {
         }
         const { material } = item;
         const { icon, color } = getFileIcon(material.fileName);
-        const isDownloading = downloadingId === material.materialId;
+        const isDownloading = downloadingIds.has(material.materialId);
         return (
           <TouchableOpacity
             style={[styles.fileCard, { backgroundColor: t.surface, borderColor: t.border, ...t.shadow }]}
-            onPress={() => downloadAndOpen(material)}
+            onPress={() => handleDownload(material)}
+            onLongPress={() => handleLongPress(material)}
             disabled={isDownloading}
             activeOpacity={0.7}
           >

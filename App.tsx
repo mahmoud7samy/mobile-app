@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { StatusBar } from 'expo-status-bar';
-import { NavigationContainer } from '@react-navigation/native';
+import { NavigationContainer, useNavigationContainerRef } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import LoginScreen from './src/screens/LoginScreen';
 import DashboardScreen from './src/screens/DashboardScreen';
@@ -29,8 +29,9 @@ import TeacherRequirementsScreen from './src/screens/TeacherRequirementsScreen';
 import ActiveAttendanceScreen from './src/screens/ActiveAttendanceScreen';
 import ActiveQrAttendanceScreen from './src/screens/ActiveQrAttendanceScreen';
 import ExamScreen from './src/screens/ExamScreen';
+import ProfileScreen from './src/screens/ProfileScreen';
 import { useAuthStore } from './src/lib/store';
-import HeaderLogoutButton from './src/components/HeaderLogoutButton';
+import HeaderProfileButton from './src/components/HeaderProfileButton';
 import { useThemeStore } from './src/lib/themeStore';
 import { usePushNotifications } from './src/lib/usePushNotifications';
 
@@ -40,10 +41,11 @@ export default function App() {
   const { token, _hydrated, rehydrate } = useAuthStore();
   const { theme: t, init: initTheme } = useThemeStore();
   const [showWelcome, setShowWelcome] = React.useState(true);
+  const navigationRef = useNavigationContainerRef();
 
   // Register device for push notifications when the user is logged in.
-  // All failures are silently swallowed – this never breaks the app.
-  usePushNotifications(!!token);
+  // We pass navigationRef so the push listener can navigate the user to 'Notifications' when tapped.
+  usePushNotifications(!!token, navigationRef);
 
   useEffect(() => {
     rehydrate();
@@ -55,12 +57,12 @@ export default function App() {
   }
 
   return (
-    <NavigationContainer>
+    <NavigationContainer ref={navigationRef}>
       <Stack.Navigator
         initialRouteName="Welcome"
         screenOptions={{
           headerShown: true,
-          headerRight: () => <HeaderLogoutButton />,
+          headerRight: () => <HeaderProfileButton />,
           headerStyle: { backgroundColor: t.surface },
           headerTintColor: t.text,
           headerTitleStyle: { fontWeight: '700', fontSize: 17, color: t.text },
@@ -203,6 +205,11 @@ export default function App() {
                   : 'Exam',
                 headerBackVisible: false,
               })}
+            />
+            <Stack.Screen
+              name="Profile"
+              component={ProfileScreen}
+              options={{ title: 'Profile & Settings' }}
             />
           </>
         ) : (

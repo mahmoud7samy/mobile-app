@@ -448,8 +448,6 @@ export default function DashboardScreen({ navigation }: any) {
               onPreTest={() => navigation.navigate('PrerequisiteTest', { materials: (course as any).materials ?? [], subjectName: course.subjectName })}
               onFeedback={isStudent && feedbackEnabled ? () => navigation.navigate('SubmitFeedback', { courseInstanceId: course.courseInstanceId, subjectName: course.subjectName, levelName: course.levelName }) : (!isStudent ? () => navigation.navigate('TeacherFeedback', { courseInstanceId: course.courseInstanceId, subjectName: course.subjectName }) : undefined)}
               onRequirements={!isStudent ? () => navigation.navigate('TeacherRequirements', { courseInstanceId: course.courseInstanceId, subjectName: course.subjectName }) : undefined}
-              onManualAttendance={!isStudent ? () => navigation.navigate('ActiveAttendance', { courseInstanceId: course.courseInstanceId, subjectName: course.subjectName }) : undefined}
-              onQrAttendance={!isStudent ? () => navigation.navigate('ActiveQrAttendance', { courseInstanceId: course.courseInstanceId, subjectName: course.subjectName }) : undefined}
               onJoinQuiz={isStudent ? () => setJoinQuizCourse(course) : undefined}
             />
           ))
@@ -502,7 +500,7 @@ function CourseCard({ course, theme: t, onGroupChat, onTasks, onMaterials, onAtt
   onAttend?: () => void; onTranscripts: () => void; onAbsences?: () => void; onPasskey?: () => void; passkeyLoading?: boolean;
   showPreTest?: boolean; onPreTest?: () => void; onAnnounce?: () => void;
   onGrades?: () => void; onCheating?: () => void; onFeedback?: () => void;
-  onRequirements?: () => void; onManualAttendance?: () => void; onQrAttendance?: () => void;
+  onRequirements?: () => void;
   onJoinQuiz?: () => void;
 }) {
   const isPractical = course.courseType === 'practical';
@@ -553,9 +551,7 @@ function CourseCard({ course, theme: t, onGroupChat, onTasks, onMaterials, onAtt
         <ActionBtn label="Materials" onPress={onMaterials} bg={t.surface2} text={t.textSecondary} />
         <ActionBtn label="Transcripts" onPress={onTranscripts} bg={t.surface2} text={t.textSecondary} />
         {onAnnounce && <ActionBtn label="Announce" onPress={onAnnounce} bg={t.primaryLight} text={t.primary} />}
-        {onAttend && <ActionBtn label={onManualAttendance ? "Attendance Report" : "Attendance"} onPress={onAttend} bg={t.surface2} text={t.textSecondary} />}
-        {onManualAttendance && <ActionBtn label="Start Manual Attendance" onPress={onManualAttendance} bg={t.primaryLight} text={t.primary} />}
-        {onQrAttendance && <ActionBtn label="Start QR Attendance" onPress={onQrAttendance} bg={t.primaryLight} text={t.primary} />}
+        {onAttend && <ActionBtn label="Attendance" onPress={onAttend} bg={t.surface2} text={t.textSecondary} />}
         {onAbsences && <ActionBtn label="Reasons for Absence" onPress={onAbsences} bg={t.surface2} text={t.textSecondary} />}
         {onGrades && <ActionBtn label="Grades" onPress={onGrades} bg={t.surface2} text={t.textSecondary} />}
         {onJoinQuiz && <ActionBtn label="Join Quiz" onPress={onJoinQuiz} bg={t.primaryLight} text={t.primary} />}

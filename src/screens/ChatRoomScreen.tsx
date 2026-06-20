@@ -2,16 +2,16 @@ import React, { useEffect, useState, useRef } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TextInput,
   TouchableOpacity, KeyboardAvoidingView, Platform, ActivityIndicator,
-  Modal, Alert
+  Modal, Alert, Image
 } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import { getChatMessages, sendChatText, sendChatAttachments, sendChatPoll, voteChatPoll, markChatAsRead, type ChatMessage } from '../lib/api';
 import { useAuthStore } from '../lib/store';
 import { useThemeStore } from '../lib/themeStore';
 import * as FileSystem from 'expo-file-system/legacy';
-import * as Sharing from 'expo-sharing';
 import { API_BASE_URL } from '../lib/api';
 import { Ionicons } from '@expo/vector-icons';
+import { useFileHandler } from '../lib/useFileHandler';
 
 function getMimeType(fileName: string): string {
   const ext = fileName.includes('.') ? fileName.slice(fileName.lastIndexOf('.')).toLowerCase() : '';
@@ -36,7 +36,7 @@ export default function ChatRoomScreen({ route }: any) {
   const [showPollModal, setShowPollModal] = useState(false);
   const [pollQuestion, setPollQuestion] = useState('');
   const [pollOptions, setPollOptions] = useState(['', '']);
-  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const { downloadingIds, downloadAndOpen, saveToDevice, getLocalPath, isFileCached } = useFileHandler();
   const listRef = useRef<FlatList>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -161,64 +161,14 @@ export default function ChatRoomScreen({ route }: any) {
     }
   };
 
-  const downloadAttachment = async (attachment: { attachmentId: string; fileName: string }) => {
-    const token = useAuthStore.getState().token;
-    if (!token) return;
-    setDownloadingId(attachment.attachmentId);
-    try {
-      const ext = attachment.fileName.includes('.') ? attachment.fileName.slice(attachment.fileName.lastIndexOf('.')) : '';
+  const handleDownloadAttachment = async (a: { attachmentId: string; fileName: string }) => {
+    const url = `${API_BASE_URL.replace(/\/$/, '')}/api/chat/attachments/${a.attachmentId}/download`;
+    await downloadAndOpen(url, a.attachmentId, a.fileName);
+  };
 
-      const docDir = (FileSystem as any).documentDirectory as string;
-      const dirInfo = await FileSystem.getInfoAsync(docDir + 'downloads/');
-      if (!dirInfo.exists) {
-        await FileSystem.makeDirectoryAsync(docDir + 'downloads/', { intermediates: true });
-      }
-
-      const path = `${docDir}downloads/${attachment.attachmentId}${ext}`;
-      const url = `${API_BASE_URL.replace(/\/$/, '')}/api/chat/attachments/${attachment.attachmentId}/download`;
-
-      const downloadResumable = FileSystem.createDownloadResumable(
-        url,
-        path,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-
-      const result = await downloadResumable.downloadAsync();
-
-      if (!result || result.status !== 200) {
-        throw new Error(`Server returned ${result?.status}`);
-      }
-
-      const mimeType = getMimeType(attachment.fileName);
-
-      if (Platform.OS === 'android') {
-        try {
-          const permissions = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
-          if (permissions.granted) {
-            const base64 = await FileSystem.readAsStringAsync(result.uri, { encoding: FileSystem.EncodingType.Base64 });
-            const newUri = await FileSystem.StorageAccessFramework.createFileAsync(permissions.directoryUri, attachment.fileName, mimeType);
-            await FileSystem.writeAsStringAsync(newUri, base64, { encoding: FileSystem.EncodingType.Base64 });
-            Alert.alert('Success', `File saved to ${attachment.fileName}`);
-          } else {
-            await Sharing.shareAsync(result.uri, { mimeType, dialogTitle: attachment.fileName });
-          }
-        } catch (e: any) {
-          Alert.alert('Device Save Failed', e.message || 'Error saving file. Sharing instead.');
-          await Sharing.shareAsync(result.uri, { mimeType, dialogTitle: attachment.fileName });
-        }
-      } else {
-        const canShare = await Sharing.isAvailableAsync();
-        if (canShare) {
-          await Sharing.shareAsync(result.uri, { mimeType, dialogTitle: attachment.fileName });
-        } else {
-          Alert.alert('Downloaded', `Saved to App Data: ${result.uri}`);
-        }
-      }
-    } catch (err: any) {
-      Alert.alert('Download failed', err.message ?? 'Try again');
-    } finally {
-      setDownloadingId(null);
-    }
+  const handleLongPressAttachment = async (a: { attachmentId: string; fileName: string }) => {
+    const url = `${API_BASE_URL.replace(/\/$/, '')}/api/chat/attachments/${a.attachmentId}/download`;
+    await saveToDevice(url, a.attachmentId, a.fileName);
   };
 
   const isMe = (msg: ChatMessage) => msg.senderUserId === userId;
@@ -269,8 +219,8 @@ export default function ChatRoomScreen({ route }: any) {
 
                 {item.messageType === 'attachment' && item.attachments?.map((a: { attachmentId: string, fileName: string, fileSize: number }) => {
                   const ext = a.fileName.includes('.') ? a.fileName.slice(a.fileName.lastIndexOf('.')).toLowerCase() : '';
-
-                  const isDownloading = downloadingId === a.attachmentId;
+                  const isImage = ['.jpg', '.jpeg', '.png', '.gif'].includes(ext);
+                  const isDownloading = downloadingIds.has(a.attachmentId);
                   const fileIcon: Record<string, string> = {
                     '.pdf': '📄', '.doc': '📝', '.docx': '📝',
                     '.ppt': '📊', '.pptx': '📊', '.xls': '📊', '.xlsx': '📊',
@@ -281,6 +231,31 @@ export default function ChatRoomScreen({ route }: any) {
                   const sizeLabel = a.fileSize >= 1024 * 1024
                     ? `${(a.fileSize / (1024 * 1024)).toFixed(1)} MB`
                     : `${(a.fileSize / 1024).toFixed(1)} KB`;
+                  if (isImage) {
+                    const token = useAuthStore.getState().token;
+                    const imageUrl = `${API_BASE_URL.replace(/\/$/, '')}/api/chat/attachments/${a.attachmentId}/download`;
+                    return (
+                      <TouchableOpacity
+                        key={a.attachmentId}
+                        style={[styles.imageBubble, { borderColor: t.border, borderWidth: mine ? 0 : 1 }]}
+                        onPress={() => handleDownloadAttachment(a)}
+                        onLongPress={() => handleLongPressAttachment(a)}
+                        disabled={isDownloading}
+                      >
+                        <Image
+                          source={{ uri: imageUrl, headers: { Authorization: `Bearer ${token}` } }}
+                          style={styles.inlineImage}
+                          resizeMode="cover"
+                        />
+                        {isDownloading && (
+                           <View style={styles.imageOverlay}>
+                              <ActivityIndicator size="large" color="#fff" />
+                           </View>
+                        )}
+                      </TouchableOpacity>
+                    );
+                  }
+
                   return (
                     <TouchableOpacity
                       key={a.attachmentId}
@@ -288,14 +263,15 @@ export default function ChatRoomScreen({ route }: any) {
                         styles.attachmentBubble,
                         mine ? { backgroundColor: 'rgba(255,255,255,0.15)' } : { backgroundColor: t.surface2, borderColor: t.border, borderWidth: 1 },
                       ]}
-                      onPress={() => downloadAttachment(a)}
+                      onPress={() => handleDownloadAttachment(a)}
+                      onLongPress={() => handleLongPressAttachment(a)}
                       disabled={isDownloading}
                     >
                       <Text style={styles.attachmentIcon}>{icon}</Text>
                       <View style={{ flex: 1 }}>
                         <Text style={[styles.attachmentName, { color: mine ? '#fff' : t.text }]} numberOfLines={2}>{a.fileName}</Text>
                         <Text style={[styles.attachmentMeta, { color: mine ? 'rgba(255,255,255,0.7)' : t.textMuted }]}>
-                          {sizeLabel} · {isDownloading ? 'Downloading…' : 'Tap to open'}
+                          {sizeLabel} · {isDownloading ? 'Opening…' : 'Tap to open'}
                         </Text>
                       </View>
                       {isDownloading && <ActivityIndicator size="small" color={mine ? '#fff' : t.primary} style={{ marginLeft: 8 }} />}
@@ -509,6 +485,9 @@ const styles = StyleSheet.create({
   attachmentIcon: { fontSize: 28, marginRight: 10 },
   attachmentName: { fontSize: 14, fontWeight: '600', lineHeight: 18, marginBottom: 3 },
   attachmentMeta: { fontSize: 11 },
+  imageBubble: { marginTop: 4, borderRadius: 12, overflow: 'hidden', minWidth: 200, minHeight: 150, backgroundColor: 'rgba(0,0,0,0.1)' },
+  inlineImage: { width: 220, height: 160 },
+  imageOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center' },
   pollWrap: { marginTop: 4, padding: 8, backgroundColor: 'rgba(0,0,0,0.05)', borderRadius: 12 },
   pollOptionBtn: { padding: 8, borderRadius: 8, borderWidth: 1, marginBottom: 6, position: 'relative', overflow: 'hidden' },
   pollResultRow: { flexDirection: 'row', alignItems: 'center' },

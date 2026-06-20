@@ -10,10 +10,9 @@ import { useThemeStore } from '../lib/themeStore';
 import { Ionicons } from '@expo/vector-icons';
 import {
   getStudentNotifications, getStudentAnnouncements, getStaffAnnouncements,
-  downloadAnnouncementAttachment
+  downloadAnnouncementAttachment, API_BASE_URL
 } from '../lib/api';
-import * as FileSystem from 'expo-file-system/legacy';
-import * as Sharing from 'expo-sharing';
+import { useFileHandler } from '../lib/useFileHandler';
 import { Alert } from 'react-native';
 
 export default function NotificationsScreen({ navigation }: any) {
@@ -64,37 +63,16 @@ export default function NotificationsScreen({ navigation }: any) {
     loadData();
   };
 
-  const handleDownloadAttachment = async (attachmentId: string, fileName: string) => {
-    try {
-      const response = await downloadAnnouncementAttachment(attachmentId);
-      
-      const fileUri = FileSystem.documentDirectory + fileName.replace(/[^a-zA-Z0-9.-]/g, '_');
-      
-      // We get a blob back from the API call, but react-native fetch with blob is tricky.
-      // Alternatively, we could just use FileSystem.downloadAsync, but our API uses token auth.
-      // Let's use FileSystem.downloadAsync with the token.
-      const token = useAuthStore.getState().token;
-      const downloadRes = await FileSystem.downloadAsync(
-        `${useAuthStore.getState()._hydrated ? 'https://ai-powered-college-platform-production.up.railway.app' : ''}/api/announcements/attachments/${attachmentId}/download`,
-        fileUri,
-        {
-          headers: { Authorization: `Bearer ${token}` }
-        }
-      );
-      
-      if (downloadRes.status !== 200) {
-        throw new Error('Failed to download');
-      }
+  const { downloadingIds, downloadAndOpen, saveToDevice } = useFileHandler();
 
-      if (await Sharing.isAvailableAsync()) {
-        await Sharing.shareAsync(downloadRes.uri);
-      } else {
-        Alert.alert('Downloaded', `File saved to ${downloadRes.uri}`);
-      }
-    } catch (err) {
-      console.error(err);
-      Alert.alert('Error', 'Failed to download attachment.');
-    }
+  const handleDownloadAttachment = async (attachmentId: string, fileName: string) => {
+    const url = `${API_BASE_URL.replace(/\/$/, '')}/api/announcements/attachments/${attachmentId}/download`;
+    await downloadAndOpen(url, attachmentId, fileName);
+  };
+
+  const handleLongPressAttachment = async (attachmentId: string, fileName: string) => {
+    const url = `${API_BASE_URL.replace(/\/$/, '')}/api/announcements/attachments/${attachmentId}/download`;
+    await saveToDevice(url, attachmentId, fileName);
   };
 
   const getIcon = (type: string) => {
@@ -139,16 +117,21 @@ export default function NotificationsScreen({ navigation }: any) {
 
           {isAnn && item.attachments && item.attachments.length > 0 && (
             <View style={styles.attachmentsWrap}>
-              {item.attachments.map((att: any) => (
-                <TouchableOpacity
-                  key={att.attachmentId}
-                  style={[styles.attachmentBtn, { backgroundColor: t.primaryLight }]}
-                  onPress={() => handleDownloadAttachment(att.attachmentId, att.fileName)}
-                >
-                  <Ionicons name="attach" size={14} color={t.primary} />
-                  <Text style={[styles.attachmentText, { color: t.primary }]} numberOfLines={1}>{att.fileName}</Text>
-                </TouchableOpacity>
-              ))}
+              {item.attachments.map((att: any) => {
+                const isDownloading = downloadingIds.has(att.attachmentId);
+                return (
+                  <TouchableOpacity
+                    key={att.attachmentId}
+                    style={[styles.attachmentBtn, { backgroundColor: t.primaryLight }]}
+                    onPress={() => handleDownloadAttachment(att.attachmentId, att.fileName)}
+                    onLongPress={() => handleLongPressAttachment(att.attachmentId, att.fileName)}
+                    disabled={isDownloading}
+                  >
+                    {isDownloading ? <ActivityIndicator size="small" color={t.primary} /> : <Ionicons name="attach" size={14} color={t.primary} />}
+                    <Text style={[styles.attachmentText, { color: t.primary }]} numberOfLines={1}>{isDownloading ? 'Opening...' : att.fileName}</Text>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
           )}
         </View>

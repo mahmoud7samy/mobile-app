@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { unregisterPushToken } from './usePushNotifications';
 
 const AUTH_KEY = 'auth-storage';
 const TOKEN_KEY = 'token';
@@ -42,6 +43,8 @@ export const useAuthStore = create<AuthState>((set) => ({
     }
   },
   clearAuth: async () => {
+    // Unregister push token before clearing the auth state
+    await unregisterPushToken();
     set({ token: null, user: null, lastViewedNotifications: null });
     await AsyncStorage.multiRemove([TOKEN_KEY, AUTH_KEY, 'lastViewedNotifications']);
   },

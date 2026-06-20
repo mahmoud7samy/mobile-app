@@ -11,8 +11,7 @@ import {
     API_BASE_URL
 } from '../lib/api';
 import { useAuthStore } from '../lib/store';
-import * as FileSystem from 'expo-file-system/legacy';
-import * as Sharing from 'expo-sharing';
+import { useFileHandler } from '../lib/useFileHandler';
 
 export default function ReviewAbsencesScreen({ route }: any) {
     const { courseInstanceId, subjectName } = route.params;
@@ -20,99 +19,66 @@ export default function ReviewAbsencesScreen({ route }: any) {
 
     const [submissions, setSubmissions] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
-    const [downloadingId, setDownloadingId] = useState<string | null>(null);
+    const { downloadingIds, downloadAndOpen, saveToDevice } = useFileHandler();
 
-    useEffect(() => {
-        load();
-    }, []);
-
-    const load = async () => {
+    const loadSubmissions = async () => {
         try {
+            setLoading(true);
             const { data } = await getAbsenceReasonSubmissions(courseInstanceId);
             setSubmissions(data);
         } catch (err) {
             console.error(err);
-            Alert.alert('Error', 'Failed to load absence submissions');
+            Alert.alert('Error', 'Failed to load submissions.');
         } finally {
             setLoading(false);
         }
     };
 
-    const handleAction = async (sub: any, action: 'approve' | 'reject') => {
+    useEffect(() => {
+        loadSubmissions();
+    }, [courseInstanceId]);
+
+    const handleAction = async (item: any, action: 'approve' | 'reject') => {
         try {
             if (action === 'approve') {
-                if (sub.type === 'range') await approveAbsenceReasonRange(sub.id);
-                else await approveAbsenceReason(sub.id);
+                if (item.type === 'range') {
+                    await approveAbsenceReasonRange(item.id);
+                } else {
+                    await approveAbsenceReason(item.id);
+                }
             } else {
-                if (sub.type === 'range') await rejectAbsenceReasonRange(sub.id);
-                else await rejectAbsenceReason(sub.id);
+                if (item.type === 'range') {
+                    await rejectAbsenceReasonRange(item.id);
+                } else {
+                    await rejectAbsenceReason(item.id);
+                }
             }
-
-            Alert.alert('Success', `Submission ${action}d`);
-            load();
+            Alert.alert('Success', `Submission ${action}d successfully.`);
+            loadSubmissions();
         } catch (err: any) {
-            Alert.alert('Error', err.response?.data?.message || `Failed to ${action}`);
+            console.error(err);
+            const msg = err.response?.data?.message || `Failed to ${action} submission.`;
+            Alert.alert('Error', msg);
         }
     };
 
-    const downloadAttachment = async (sub: any) => {
-        const token = useAuthStore.getState().token;
-        if (!token) return;
-        setDownloadingId(sub.id);
-        try {
-            const docDir = `${(FileSystem as any).documentDirectory}downloads/`;
-            const dirInfo = await FileSystem.getInfoAsync(docDir);
-            if (!dirInfo.exists) {
-                await FileSystem.makeDirectoryAsync(docDir + 'downloads/', { intermediates: true });
-            }
 
-            const fileName = `absence_${sub.studentCode}.bin`;
-            const path = `${docDir}${fileName}`;
-            const endpoint = sub.type === 'range'
-                ? `/api/attendance/absence-reason/range/${sub.id}/download`
-                : `/api/attendance/absence-reason/${sub.id}/download`;
-            const url = `${API_BASE_URL.replace(/\/$/, '')}${endpoint}`;
+    const handleDownloadAttachment = async (sub: any) => {
+        const fileName = sub.attachmentOriginalName || `absence_${sub.studentCode}.bin`;
+        const endpoint = sub.type === 'range'
+            ? `/api/attendance/absence-reason/range/${sub.id}/download`
+            : `/api/attendance/absence-reason/${sub.id}/download`;
+        const url = `${API_BASE_URL.replace(/\/$/, '')}${endpoint}`;
+        await downloadAndOpen(url, sub.id, fileName);
+    };
 
-            const downloadResumable = FileSystem.createDownloadResumable(
-                url,
-                path,
-                { headers: { Authorization: `Bearer ${token}` } }
-            );
-
-            const result = await downloadResumable.downloadAsync();
-
-            if (!result || result.status !== 200) {
-                throw new Error(`Server returned ${result?.status}`);
-            }
-
-            if (Platform.OS === 'android') {
-                try {
-                    const permissions = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
-                    if (permissions.granted) {
-                        const base64 = await FileSystem.readAsStringAsync(result.uri, { encoding: FileSystem.EncodingType.Base64 });
-                        const newUri = await FileSystem.StorageAccessFramework.createFileAsync(permissions.directoryUri, fileName, 'application/octet-stream');
-                        await FileSystem.writeAsStringAsync(newUri, base64, { encoding: FileSystem.EncodingType.Base64 });
-                        Alert.alert('Success', `Attachment saved.`);
-                    } else {
-                        await Sharing.shareAsync(result.uri, { dialogTitle: fileName });
-                    }
-                } catch (e) {
-                    await Sharing.shareAsync(result.uri, { dialogTitle: fileName });
-                }
-            } else {
-                const canShare = await Sharing.isAvailableAsync();
-                if (canShare) {
-                    await Sharing.shareAsync(result.uri, { dialogTitle: fileName });
-                } else {
-                    Alert.alert('Downloaded', `Saved to App Data: ${result.uri}`);
-                }
-            }
-        } catch (err: any) {
-            console.error('Absence Download Error:', err);
-            Alert.alert('Download failed', err.message ?? String(err));
-        } finally {
-            setDownloadingId(null);
-        }
+    const handleLongPressAttachment = async (sub: any) => {
+        const fileName = sub.attachmentOriginalName || `absence_${sub.studentCode}.bin`;
+        const endpoint = sub.type === 'range'
+            ? `/api/attendance/absence-reason/range/${sub.id}/download`
+            : `/api/attendance/absence-reason/${sub.id}/download`;
+        const url = `${API_BASE_URL.replace(/\/$/, '')}${endpoint}`;
+        await saveToDevice(url, sub.id, fileName);
     };
 
     const renderItem = ({ item }: { item: any }) => {
@@ -155,12 +121,13 @@ export default function ReviewAbsencesScreen({ route }: any) {
                 {item.hasAttachment && (
                     <TouchableOpacity
                         style={[styles.attachmentNotice, { borderColor: t.primary, borderWidth: 1, padding: 8, borderRadius: 8, flexDirection: 'row', alignItems: 'center' }]}
-                        onPress={() => downloadAttachment(item)}
-                        disabled={downloadingId === item.id}
+                        onPress={() => handleDownloadAttachment(item)}
+                        onLongPress={() => handleLongPressAttachment(item)}
+                        disabled={downloadingIds.has(item.id)}
                     >
                         <Ionicons name="attach" size={16} color={t.primary} />
                         <Text style={{ color: t.primary, fontWeight: '600', marginLeft: 6 }}>
-                            {downloadingId === item.id ? 'Downloading...' : 'View Attachment'}
+                            {downloadingIds.has(item.id) ? 'Opening...' : 'View Attachment'}
                         </Text>
                     </TouchableOpacity>
                 )}
