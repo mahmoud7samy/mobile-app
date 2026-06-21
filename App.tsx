@@ -17,6 +17,8 @@ import AbsencesScreen from './src/screens/AbsencesScreen';
 import CreateAnnouncementScreen from './src/screens/CreateAnnouncementScreen';
 import TeacherAttendanceScreen from './src/screens/TeacherAttendanceScreen';
 import ReviewAbsencesScreen from './src/screens/ReviewAbsencesScreen';
+import TeacherCourseScreen from './src/screens/TeacherCourseScreen';
+import LiveQuizScreen from './src/screens/LiveQuizScreen';
 import TeacherGradesScreen from './src/screens/TeacherGradesScreen';
 import CheatingReportsScreen from './src/screens/CheatingReportsScreen';
 
@@ -191,11 +193,8 @@ export default function App() {
               component={StudentGradesScreen}
               options={{ title: 'My Grades' }}
             />
-            <Stack.Screen
-              name="Notifications"
-              component={NotificationsScreen}
-              options={{ title: 'Notifications' }}
-            />
+            <Stack.Screen name="Notifications" component={NotificationsScreen} options={{ title: 'Notifications' }} />
+            <Stack.Screen name="LiveQuiz" component={LiveQuizScreen} options={{ title: 'Live Quiz', headerShown: false }} />
             <Stack.Screen
               name="Exam"
               component={ExamScreen}

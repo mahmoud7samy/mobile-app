@@ -449,6 +449,7 @@ export default function DashboardScreen({ navigation }: any) {
               onFeedback={isStudent && feedbackEnabled ? () => navigation.navigate('SubmitFeedback', { courseInstanceId: course.courseInstanceId, subjectName: course.subjectName, levelName: course.levelName }) : (!isStudent ? () => navigation.navigate('TeacherFeedback', { courseInstanceId: course.courseInstanceId, subjectName: course.subjectName }) : undefined)}
               onRequirements={!isStudent ? () => navigation.navigate('TeacherRequirements', { courseInstanceId: course.courseInstanceId, subjectName: course.subjectName }) : undefined}
               onJoinQuiz={isStudent ? () => setJoinQuizCourse(course) : undefined}
+              onLiveQuiz={isStudent ? () => navigation.navigate('LiveQuiz', { courseInstanceId: course.courseInstanceId, subjectName: course.subjectName }) : undefined}
             />
           ))
         }
@@ -494,14 +495,15 @@ const pillStyles = StyleSheet.create({
   label: { fontSize: 13, fontWeight: '600' },
 });
 
-function CourseCard({ course, theme: t, onGroupChat, onTasks, onMaterials, onAttend, onTranscripts, onAbsences, onPasskey, passkeyLoading, showPreTest, onPreTest, onAnnounce, onGrades, onCheating, onFeedback, onRequirements, onManualAttendance, onQrAttendance, onJoinQuiz }: {
+function CourseCard({ course, theme: t, onGroupChat, onTasks, onMaterials, onAttend, onTranscripts, onAbsences, onPasskey, passkeyLoading, showPreTest, onPreTest, onAnnounce, onGrades, onCheating, onFeedback, onRequirements, onManualAttendance, onQrAttendance, onJoinQuiz, onLiveQuiz }: {
   course: DashboardCourse; theme: any;
   onGroupChat: () => void; onTasks: () => void; onMaterials: () => void;
   onAttend?: () => void; onTranscripts: () => void; onAbsences?: () => void; onPasskey?: () => void; passkeyLoading?: boolean;
   showPreTest?: boolean; onPreTest?: () => void; onAnnounce?: () => void;
   onGrades?: () => void; onCheating?: () => void; onFeedback?: () => void;
   onRequirements?: () => void;
-  onJoinQuiz?: () => void;
+  onManualAttendance?: () => void; onQrAttendance?: () => void; onJoinQuiz?: () => void;
+  onLiveQuiz?: () => void;
 }) {
   const isPractical = course.courseType === 'practical';
   const att = course.attendance;
@@ -554,7 +556,8 @@ function CourseCard({ course, theme: t, onGroupChat, onTasks, onMaterials, onAtt
         {onAttend && <ActionBtn label="Attendance" onPress={onAttend} bg={t.surface2} text={t.textSecondary} />}
         {onAbsences && <ActionBtn label="Reasons for Absence" onPress={onAbsences} bg={t.surface2} text={t.textSecondary} />}
         {onGrades && <ActionBtn label="Grades" onPress={onGrades} bg={t.surface2} text={t.textSecondary} />}
-        {onJoinQuiz && <ActionBtn label="Join Quiz" onPress={onJoinQuiz} bg={t.primaryLight} text={t.primary} />}
+        {onJoinQuiz && <ActionBtn label="Scheduled Quiz" onPress={onJoinQuiz} bg={t.surface2} text={t.textSecondary} />}
+        {onLiveQuiz && <ActionBtn label="Live Quiz" onPress={onLiveQuiz} bg={'rgba(234, 179, 8, 0.15)'} text={'#EAB308'} />}
         {onCheating && <ActionBtn label="Cheating Flags" onPress={onCheating} bg={'rgba(239, 68, 68, 0.15)'} text={'#EF4444'} />}
         {onRequirements && <ActionBtn label="Requirements" onPress={onRequirements} bg={t.surface2} text={t.textSecondary} />}
         {showPreTest && onPreTest && (
