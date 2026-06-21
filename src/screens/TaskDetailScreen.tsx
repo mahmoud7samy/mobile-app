@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView,
-  TouchableOpacity, ActivityIndicator, Alert, Platform,
+  View, Text, StyleSheet, ScrollView, TextInput,
+  TouchableOpacity, ActivityIndicator, Alert, Platform, Modal, KeyboardAvoidingView,
 } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -34,6 +34,9 @@ export default function TaskDetailScreen({ route }: any) {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [gradingId, setGradingId] = useState<string | null>(null);
+  const [showGradeModal, setShowGradeModal] = useState(false);
+  const [gradeInput, setGradeInput] = useState('');
+  const [gradingSub, setGradingSub] = useState<any>(null);
   const { downloadingIds, downloadAndOpen, saveToDevice } = useFileHandler();
 
   const load = async () => {
@@ -126,34 +129,28 @@ export default function TaskDetailScreen({ route }: any) {
   };
 
   const handleGrade = (sub: any) => {
-    Alert.prompt(
-      'Grade Submission',
-      `Enter grade (out of ${task?.totalPoints})`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Save',
-          onPress: async (val?: string) => {
-            if (!val || isNaN(Number(val))) {
-              Alert.alert('Invalid grade', 'Please enter a valid number.');
-              return;
-            }
-            try {
-              setGradingId(sub.submissionId);
-              await setTaskGrade(sub.submissionId, Number(val));
-              Alert.alert('Success', 'Grade updated');
-              load();
-            } catch (err: any) {
-              Alert.alert('Error', err.response?.data?.message || 'Failed to update grade');
-            } finally {
-              setGradingId(null);
-            }
-          }
-        }
-      ],
-      'plain-text',
-      sub.grade?.toString() || ''
-    );
+    setGradingSub(sub);
+    setGradeInput(sub.grade?.toString() || '');
+    setShowGradeModal(true);
+  };
+
+  const submitGrade = async () => {
+    if (!gradeInput || isNaN(Number(gradeInput))) {
+      Alert.alert('Invalid grade', 'Please enter a valid number.');
+      return;
+    }
+    try {
+      setShowGradeModal(false);
+      setGradingId(gradingSub.submissionId);
+      await setTaskGrade(gradingSub.submissionId, Number(gradeInput));
+      Alert.alert('Success', 'Grade updated');
+      load();
+    } catch (err: any) {
+      Alert.alert('Error', err.response?.data?.message || 'Failed to update grade');
+    } finally {
+      setGradingId(null);
+      setGradingSub(null);
+    }
   };
 
   const handleDownloadStudentSubmission = async (sub: any) => {
@@ -356,6 +353,35 @@ export default function TaskDetailScreen({ route }: any) {
       )}
 
       <View style={{ height: 32 }} />
+
+      {/* Grade Modal for Cross-Platform compatibility */}
+      <Modal visible={showGradeModal} transparent={true} animationType="fade" onRequestClose={() => setShowGradeModal(false)}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: t.surface, borderColor: t.border }]}>
+            <Text style={[styles.modalTitle, { color: t.text }]}>Grade Submission</Text>
+            <Text style={{ color: t.textMuted, marginBottom: 16 }}>Enter grade (out of {task?.totalPoints})</Text>
+            
+            <TextInput
+              style={[styles.modalInput, { color: t.text, borderColor: t.border, backgroundColor: t.bg }]}
+              value={gradeInput}
+              onChangeText={setGradeInput}
+              keyboardType="numeric"
+              placeholder="e.g. 10"
+              placeholderTextColor={t.textMuted}
+              autoFocus
+            />
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity style={[styles.btnOutline, { borderColor: t.border, marginRight: 10 }]} onPress={() => setShowGradeModal(false)}>
+                <Text style={{ color: t.text, fontWeight: '600' }}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.btnSolid, { backgroundColor: t.primary }]} onPress={submitGrade}>
+                <Text style={{ color: '#fff', fontWeight: '700' }}>Save</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </ScrollView>
   );
 }
@@ -389,4 +415,9 @@ const styles = StyleSheet.create({
   sectionTitle: { fontSize: 18, fontWeight: '800', marginBottom: 12 },
   btnOutline: { flex: 1, borderWidth: 1, borderRadius: 10, paddingVertical: 10, alignItems: 'center' },
   btnSolid: { flex: 1, borderRadius: 10, paddingVertical: 10, alignItems: 'center' },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 20 },
+  modalContent: { borderRadius: 16, padding: 24, borderWidth: 1, ...Platform.select({ ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 10 }, android: { elevation: 5 } }) },
+  modalTitle: { fontSize: 18, fontWeight: '800', marginBottom: 4 },
+  modalInput: { borderWidth: 1, borderRadius: 10, padding: 12, fontSize: 16, marginBottom: 20 },
+  modalActions: { flexDirection: 'row', justifyContent: 'flex-end' },
 });

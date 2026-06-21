@@ -284,7 +284,7 @@ export const checkInAttendance = (code: string, courseInstanceId: string) =>
   api.post<{ message: string; points: number }>('/attendance/checkin', { code, courseInstanceId });
 
 export const submitQrScan = (token: string, scannedAt: string, courseInstanceId: string) =>
-  api.post<{ attemptId?: string; needWebAuthn?: boolean; options?: any; verified?: boolean; points?: number }>('/attendance/qr/scan', { token, scannedAt, courseInstanceId });
+  api.post<{ attemptId?: string; needWebAuthn?: boolean; options?: any; verified?: boolean; points?: number }>('/attendance/qr/scan', { qrToken: token, scannedAt, courseInstanceId });
 
 export const completeQrAttendance = (attemptId: string, courseInstanceId: string, assertionResponse: any) =>
   api.post<{ message: string; points: number }>('/attendance/qr/complete', { attemptId, courseInstanceId, assertionResponse });
