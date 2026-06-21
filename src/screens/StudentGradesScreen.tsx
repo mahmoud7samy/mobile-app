@@ -52,7 +52,7 @@ export default function StudentGradesScreen({ route }: any) {
       <View style={[styles.card, { backgroundColor: t.surface, borderColor: t.border }]}>
         <View style={styles.cardHeader}>
           <Text style={[styles.quizName, { color: t.text }]} numberOfLines={2}>
-            {item.quizName}
+            {item.quizTitle || item.quizName || 'Unnamed Quiz'}
           </Text>
           <View style={[styles.statusBadge, { backgroundColor: statusColor + '20' }]}>
             <Ionicons name={iconName as any} size={14} color={statusColor} />

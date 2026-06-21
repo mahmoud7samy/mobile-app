@@ -17,6 +17,8 @@ export default function TranscriptDetailScreen({ route }: any) {
   const { theme: t } = useThemeStore();
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [audioError, setAudioError] = useState('');
+  const { downloadingIds, downloadAndOpen, saveToDevice } = useFileHandler();
 
   // Audio player state
   const soundRef = useRef<Audio.Sound | null>(null);
@@ -25,9 +27,6 @@ export default function TranscriptDetailScreen({ route }: any) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [position, setPosition] = useState(0);   // ms
   const [duration, setDuration] = useState(0);   // ms
-  const [audioError, setAudioError] = useState('');
-
-  const { downloadingIds, downloadAndOpen, saveToDevice } = useFileHandler();
 
   useEffect(() => {
     const load = async () => {
@@ -82,7 +81,7 @@ export default function TranscriptDetailScreen({ route }: any) {
       throw new Error(`Server returned ${result?.status}`);
     }
     return result.uri;
-  }, [getLocalAudioPath, transcriptId, data]);
+  }, [getLocalAudioPath, transcriptId]);
 
   const onPlaybackUpdate = (status: AVPlaybackStatus) => {
     if (!status.isLoaded) return;
@@ -133,24 +132,26 @@ export default function TranscriptDetailScreen({ route }: any) {
     }
   };
 
-  const handleSeek = async (value: number) => {
-    if (!soundRef.current) return;
-    await soundRef.current.setPositionAsync(value);
-  };
-
   const handleOpenWith = async () => {
     setAudioError('');
     try {
-      const fileName = data?.recordingFileName || `recording-${transcriptId}.mp3`;
+      let fileName = data?.recordingFileName || `recording-${transcriptId}.mp3`;
+      if (!fileName.includes('.')) fileName += '.mp3';
       await downloadAndOpen(getRecordingUrl(), transcriptId, fileName);
     } catch (err: any) {
       setAudioError(err.message || 'Failed to open file');
     }
   };
 
-  const handleSave = async () => {
-    const fileName = data?.recordingFileName || `recording-${transcriptId}.mp3`;
-    await saveToDevice(getRecordingUrl(), transcriptId, fileName);
+  const handleDownloadDevice = async () => {
+    setAudioError('');
+    try {
+      let fileName = data?.recordingFileName || `recording-${transcriptId}.mp3`;
+      if (!fileName.includes('.')) fileName += '.mp3';
+      await saveToDevice(getRecordingUrl(), transcriptId, fileName);
+    } catch (err: any) {
+      setAudioError(err.message || 'Failed to save file');
+    }
   };
 
   const formatTime = (ms: number) => {
@@ -208,89 +209,7 @@ export default function TranscriptDetailScreen({ route }: any) {
           <Text style={[styles.fullText, { color: t.text }]}>{data.transcriptText}</Text>
         </View>
 
-        {data.recordingAvailableForDownload && (
-          <View style={[styles.audioCard, { backgroundColor: t.surface, borderColor: t.border }]}>
-            <View style={styles.audioCardHeader}>
-              <Text style={{ fontSize: 20, marginRight: 8 }}>🎧</Text>
-              <Text style={[styles.audioCardTitle, { color: t.text }]}>Lecture Recording</Text>
-            </View>
 
-            {/* In-app player */}
-            <View style={[styles.playerRow]}>
-              <TouchableOpacity
-                style={[styles.playBtn, { backgroundColor: t.primary }]}
-                onPress={handlePlayPause}
-                disabled={audioLoading}
-              >
-                {audioLoading ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Ionicons name={isPlaying ? 'pause' : 'play'} size={22} color="#fff" />
-                )}
-              </TouchableOpacity>
-
-              <View style={styles.seekArea}>
-                {duration > 0 ? (
-                  <>
-                    <View style={[styles.progressBar, { backgroundColor: t.border }]}>
-                      <View
-                        style={[
-                          styles.progressFill,
-                          { backgroundColor: t.primary, width: `${(position / duration) * 100}%` as any }
-                        ]}
-                      />
-                    </View>
-                    <View style={styles.timeRow}>
-                      <Text style={[styles.timeText, { color: t.textMuted }]}>{formatTime(position)}</Text>
-                      <Text style={[styles.timeText, { color: t.textMuted }]}>{formatTime(duration)}</Text>
-                    </View>
-                  </>
-                ) : (
-                  <Text style={[styles.timeText, { color: t.textMuted }]}>
-                    {audioLoading ? 'Loading…' : 'Tap ▶ to play in app'}
-                  </Text>
-                )}
-              </View>
-            </View>
-
-            {audioError ? (
-              <Text style={[styles.errorText, { color: t.danger }]}>{audioError}</Text>
-            ) : null}
-
-            {/* Open with external app */}
-            <View style={styles.actionBtns}>
-              <TouchableOpacity
-                style={[styles.actionBtn, { borderColor: t.primary, backgroundColor: t.primaryLight }]}
-                onPress={handleOpenWith}
-                disabled={downloadingIds.has(transcriptId)}
-              >
-                {downloadingIds.has(transcriptId) ? (
-                  <ActivityIndicator size="small" color={t.primary} />
-                ) : (
-                  <>
-                    <Ionicons name="open-outline" size={16} color={t.primary} style={{ marginRight: 6 }} />
-                    <Text style={[styles.actionBtnText, { color: t.primary }]}>Open With…</Text>
-                  </>
-                )}
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.actionBtn, { borderColor: t.border, backgroundColor: t.surface2 }]}
-                onPress={handleSave}
-                disabled={downloadingIds.has(transcriptId + '_save')}
-              >
-                {downloadingIds.has(transcriptId + '_save') ? (
-                  <ActivityIndicator size="small" color={t.textSecondary} />
-                ) : (
-                  <>
-                    <Ionicons name="download-outline" size={16} color={t.textSecondary} style={{ marginRight: 6 }} />
-                    <Text style={[styles.actionBtnText, { color: t.textSecondary }]}>Save to Device</Text>
-                  </>
-                )}
-              </TouchableOpacity>
-            </View>
-          </View>
-        )}
 
         <View style={{ height: 40 }} />
       </ScrollView>
